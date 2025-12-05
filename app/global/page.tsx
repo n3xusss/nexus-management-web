@@ -1,10 +1,49 @@
 'use client';
-import { useRequireAuth } from '../../hooks/useRequireAuth';
-import { useAuth } from '../../context/AuthContext';
 
-export default function HomePage() {
-  const { user, isLoading } = useRequireAuth(); // ✅ Automatic redirect if not authenticated
+import { useRequireAuth } from '../../hooks/useRequireAuth';
+import { useAuth } from '../../lib/stores/authStore';
+import Sidebar from '../../components/Sidebar';
+import { useDashboardStore } from '../../lib/stores/dashboardStore';
+
+// Import all content components
+import DashboardContent from '../../components/content/DashboardContent';
+import ProjectsContent from '../../components/content/ProjectsContent';
+import DepartmentsContent from '../../components/content/DepartmentsContent';
+import MembersContent from '../../components/content/MembersContent';
+import TasksContent from '../../components/content/TasksContent';
+import MeetingsContent from '../../components/content/MeetingsContent';
+import EventsContent from '../../components/content/EventsContent';
+import IssuesContent from '../../components/content/IssuesContent';
+import ProfileContent from '../../components/content/ProfileContent'; // For members
+
+// Component mapping - DIFFERENT FOR ADMIN VS MEMBER
+const adminComponentMap = {
+  dashboard: DashboardContent,
+  projects: ProjectsContent,
+  departments: DepartmentsContent,
+  members: MembersContent,
+  tasks: TasksContent,
+  meetings: MeetingsContent,
+  events: EventsContent,
+  issues: IssuesContent,
+};
+
+const memberComponentMap = {
+  dashboard: DashboardContent,
+  projects: ProjectsContent,
+  tasks: TasksContent,
+  meetings: MeetingsContent,
+  profile: ProfileContent,
+};
+
+export default function GlobalPage() {
+  const { user, isLoading } = useRequireAuth();
   const { logout } = useAuth();
+  const { activeSection } = useDashboardStore();
+
+  // Choose component map based on role
+  const componentMap = user?.role === 'member' ? memberComponentMap : adminComponentMap;
+  const ActiveComponent = componentMap[activeSection as keyof typeof componentMap] || DashboardContent;
 
   if (isLoading || !user) {
     return (
@@ -18,45 +57,33 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#2A2A2A] text-white p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <button
-            onClick={logout}
-            className="bg-red-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-red-600 transition-colors text-lg"
-          >
-            Logout
-          </button>
+    <div className="min-h-screen bg-[#2A2A2A] text-white flex">
+      {/* Sidebar - Automatically shows correct version based on role */}
+      <Sidebar />
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Topbar with Logout and User Info  , it looks a bit ugly so we may remove it someday */}
+        <div className="bg-[#1e1e1e] px-8 py-3 border-b border-[#3a3a3a] flex justify-between items-center">
+          <div className="text-sm text-[#808080]">
+            {user?.role === 'admin' && 'System Administrator'}
+            {user?.role === 'manager' && 'Department Manager'}
+            {user?.role === 'member' && 'Club Member'}
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-white hidden md:block">{user?.email}</span>
+            <button
+              onClick={logout}
+              className="bg-red-500 text-white px-6 py-2 rounded-lg font-semibold hover:bg-red-600 transition-colors cursor-pointer"
+            >
+              Logout
+            </button>
+          </div>
         </div>
-        
-        <div className="bg-[#3A3A3A] rounded-lg p-6">
-          <h2 className="text-2xl font-semibold mb-4">
-            Welcome back, {user.name}!
-          </h2>
-          <p className="text-gray-300 mb-2">Email: {user.email}</p>
-          <p className="text-gray-300 mb-4">Role: <span className="capitalize">{user.role}</span></p>
-          
-          {/* Role-specific content */}
-          {user.role === 'admin' && (
-            <div className="border-t border-gray-600 pt-4">
-              <h3 className="text-xl font-semibold mb-4">Admin Dashboard</h3>
-              <p className="text-gray-300 mb-6">
-                You have full access to manage departments, projects, and users.
-              </p>
-            </div>
-          )}
-          
-          
-            <div className="border-t border-gray-600 pt-4">
-              <h3 className="text-xl font-semibold mb-4">Manager Dashboard</h3>
-              <p className="text-gray-300 mb-6">
-                to be implemented
-              </p>
-            </div>
-          
-          
-          
+
+        {/* Dynamic Content */}
+        <div className="flex-1 overflow-y-auto p-8">
+          <ActiveComponent />
         </div>
       </div>
     </div>

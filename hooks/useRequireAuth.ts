@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../lib/stores/authStore';
 
 export function useRequireAuth() {
   const { user, isLoading } = useAuth();
@@ -10,7 +10,6 @@ export function useRequireAuth() {
 
   useEffect(() => {
     if (!isLoading && !user) {
-      // Redirect to login if not authenticated
       router.push('/');
     }
   }, [user, isLoading, router]);

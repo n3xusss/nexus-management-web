@@ -1,4 +1,3 @@
-// lib/api.ts
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api';
 
 export interface BackendUser {
@@ -13,6 +12,7 @@ export interface BackendUser {
 export interface AuthResponse {
   user: BackendUser;
   access: string;
+  refresh?: string;
   non_field_errors?: string[];
 }
 
@@ -22,6 +22,23 @@ export interface FrontendUser {
   email: string;
   role: 'admin' | 'manager' | 'member'; 
 }
+export const logout = async (refreshToken: string) => {
+  const response = await fetch(`${API_BASE}/auth/logout/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      refresh: refreshToken
+    }),
+  });
+
+  if (!response.ok) {
+    console.warn('Logout API call failed, but continuing with client-side logout');
+  }
+  
+  return response.ok;
+};
 
 export const exchangeGoogleCode = async (code: string): Promise<AuthResponse> => {
   const response = await fetch(`${API_BASE}/auth/google/`, {

@@ -1,14 +1,14 @@
+// app/accounts/google/callback/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuth } from '../../../../context/AuthContext';
-import { exchangeGoogleCode, formatFrontendUser } from '../../../../lib/api';
+import { useAuth } from '../../../../lib/stores/authStore';
 
 export default function GoogleCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login } = useAuth();
+  const { login, exchangeGoogleAuth } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -20,17 +20,10 @@ export default function GoogleCallback() {
         if (!code) {
           throw new Error('No authorization code received from Google');
         }
-
-        console.log('Exchanging Google code for token...', code);
-
-        const response = await exchangeGoogleCode(code);
-        
-        console.log('Backend response:', response);
-
-        const frontendUser = formatFrontendUser(response.user);
-
-        console.log('Login with user:', frontendUser);
-        login(frontendUser, response.access);
+        const data = await exchangeGoogleAuth(code);
+        console.log('Google OAuth successful, logging in user:', data);
+        const { user, token ,refreshToken} = data 
+        login(user, token, refreshToken);
 
       } catch (err: any) {
         console.error('Google OAuth callback error:', err);
@@ -40,7 +33,7 @@ export default function GoogleCallback() {
     };
 
     handleGoogleCallback();
-  }, [searchParams, login, router]);
+  }, [searchParams, login, exchangeGoogleAuth, router]);
 
   if (error) {
     return (

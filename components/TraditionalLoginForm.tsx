@@ -1,9 +1,7 @@
-// components/TraditionalLoginForm.tsx
 'use client';
 
 import { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { traditionalLogin } from '../lib/api';
+import { useAuth } from '../lib/stores/authStore';
 
 export default function TraditionalLoginForm() {
   const [formData, setFormData] = useState({
@@ -12,7 +10,7 @@ export default function TraditionalLoginForm() {
   });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { traditionalAuth } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,36 +18,12 @@ export default function TraditionalLoginForm() {
     setIsLoading(true);
 
     try {
-      console.log('Attempting traditional login...', formData);
-
-      const data = await traditionalLogin(formData.username, formData.password);
-
-      console.log('Traditional login response:', data);
-      console.log('User role from backend:', data.user?.role);
-
-      if (data.access && data.user) {
-        const userData = {
-          id: data.user.id.toString(),
-          name: data.user.username || data.user.email,
-          email: data.user.email,
-          role: data.user.role || 'member'
-        };
-
-        console.log('Traditional login successful - Final user data:', userData);
-        login(userData, data.access);
-      } else {
-        console.error('Missing data in response:', data);
-        throw new Error('Invalid response from server - missing user or access token');
-      }
-
+      await traditionalAuth(formData.username, formData.password);
+      // Login and redirect handled in store
     } catch (err: any) {
       console.error('Traditional login error:', err);
       setError(err.message || 'Login failed. Please check your credentials.');
-      
-      setFormData({
-        username: '',
-        password: '',
-      });
+      setFormData({ username: '', password: '' });
     } finally {
       setIsLoading(false);
     }
@@ -64,8 +38,8 @@ export default function TraditionalLoginForm() {
 
   return (
     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-      <h2 className="text-2xl font-bold text-white mb-6  text-center">
-        Admin  Login
+      <h2 className="text-2xl font-bold text-white mb-6 text-center">
+        Admin Login
       </h2>
       
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -129,7 +103,6 @@ export default function TraditionalLoginForm() {
         <p className="text-sm text-gray-400">
           Use this for admin role Development
         </p>
-        
       </div>
     </div>
   );

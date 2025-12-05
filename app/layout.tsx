@@ -1,6 +1,6 @@
+// app/layout.tsx
 import type { Metadata } from "next";
 import "./globals.css";
-import { AuthProvider } from '../context/AuthContext';
 
 export const metadata: Metadata = {
   title: "NexusHub - Manage Your Community",
@@ -18,9 +18,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+        {children} 
       </body>
     </html>
   );
