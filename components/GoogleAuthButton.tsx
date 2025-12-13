@@ -1,24 +1,22 @@
+// app/components/GoogleAuthButton.tsx - SIMPLIFIED
 'use client';
 
 export default function GoogleAuthButton() {
   const handleGoogleAuth = () => {
+    // Simple redirect for returning users
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID;
     const redirectUri = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_REDIRECT_URI;
     
-    if (!clientId || !redirectUri) {
-      console.error('Missing Google OAuth configuration');
-      return;
-    }
-
     const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
+      client_id: clientId!,
+      redirect_uri: redirectUri!,
       response_type: 'code',
       scope: 'openid email profile',
       access_type: 'offline',
       prompt: 'consent',
     });
     
+    console.log('🔍 Redirecting to Google OAuth');
     window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
   };
 

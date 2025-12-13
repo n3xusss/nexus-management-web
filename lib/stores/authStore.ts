@@ -1,92 +1,104 @@
+// lib/stores/authStore.ts - FIXED
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { logout, exchangeGoogleCode, formatFrontendUser, traditionalLogin, FrontendUser, AuthResponse } from '../api';
+import { 
+  logout, 
+  formatFrontendUser, 
+  traditionalLogin, 
+  getUserProfile,
+  FrontendUser, 
+  AuthResponse,
+  BackendUser
+} from '../api';
 
 interface AuthState {
   user: FrontendUser | null;
   token: string | null;
-  isLoading: boolean;
   refreshToken: string | null;
-  login: (userData: FrontendUser, authToken: string, refreshToken?: string) => void;
+  isLoading: boolean;
+  login: (authData: AuthResponse) => void;
   logout: () => Promise<void>;
   setLoading: (loading: boolean) => void;
-  exchangeGoogleAuth: (code: string) => Promise<{ user: FrontendUser; token: string; refreshToken?: string }>;
   traditionalAuth: (username: string, password: string) => Promise<void>;
+  loadUserFromToken: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
-      // Initial state
       user: null,
       token: null,
-      isLoading: true,
       refreshToken: null,
+      isLoading: true,
 
-      // Actions
-      setLoading: (loading: boolean) => set({ isLoading: loading }),
+      setLoading: (loading) => set({ isLoading: loading }),
 
-      login: (userData: FrontendUser, authToken: string, refreshToken?: string) => {
-        console.log('Zustand login:', userData);
+      login: (authData: AuthResponse) => {
+        console.log('🔍 [AuthStore] Login with auth data:', authData);
+        
+        if (!authData.user || !authData.access) {
+          console.error('Invalid auth data:', authData);
+          return;
+        }
+        
+        const frontendUser = formatFrontendUser(authData.user);
+        
         set({ 
-          user: userData, 
-          token: authToken, 
-          isLoading: false,
-          refreshToken: refreshToken || null // local storage will be triggered only if value changes
+          user: frontendUser, 
+          token: authData.access, 
+          refreshToken: authData.refresh,
+          isLoading: false
         });
         
-        console.log('Login complete, redirecting to /global');
-        window.location.href = '/global';
+        console.log('✅ [AuthStore] Login complete, user:', frontendUser);
+        
+        // Redirect to global page
+        setTimeout(() => {
+          window.location.href = '/global';
+        }, 100);
       },
 
       logout: async () => {
         const { refreshToken } = get();
         
         try {
-          // Try to invalidate refresh token on server
           if (refreshToken) {
             await logout(refreshToken);
-            console.log('Server-side logout successful');
           }
         } catch (error) {
-          console.warn('Server logout failed, continuing with client-side logout:', error);
+          console.warn('Server logout failed:', error);
         }
 
-        // Clear client state
+        // Clear all localStorage items related to auth
+        localStorage.removeItem('oauth_access_token');
+        localStorage.removeItem('oauth_refresh_token');
+        localStorage.removeItem('oauth_user_data');
+        localStorage.removeItem('invite_token');
+        
         set({ user: null, token: null, refreshToken: null, isLoading: false });
-        console.log('Logout complete, redirecting to /');
         window.location.href = '/';
       },
 
-      exchangeGoogleAuth: async (code: string) => {
-        console.log('Exchanging Google code for token...', code);
-        const data: AuthResponse = await exchangeGoogleCode(code);
-        const frontendUser = formatFrontendUser(data.user);
-        
-        console.log('Google auth exchange successful:', frontendUser);
-        return { 
-          user: frontendUser, 
-          token: data.access,
-          refreshToken: data.refresh 
-        };
+      traditionalAuth: async (username: string, password: string) => {
+        console.log('Traditional auth for:', username);
+        const authData = await traditionalLogin(username, password);
+        get().login(authData);
       },
 
-      traditionalAuth: async (username: string, password: string) => {
-        console.log('Traditional auth attempt for:', username);
-        const data = await traditionalLogin(username, password);
-        
-        if (data.access && data.user) {
-          const userData = {
-            id: data.user.id.toString(),
-            name: data.user.username || data.user.email,
-            email: data.user.email,
-            role: data.user.role || 'member'
-          };
+      loadUserFromToken: async () => {
+        const { token } = get();
+        if (!token) {
+          set({ isLoading: false });
+          return;
+        }
 
-          console.log('Traditional auth successful:', userData);
-          get().login(userData, data.access, data.refresh);
-        } else {
-          throw new Error('Invalid response from server');
+        try {
+          const backendUser = await getUserProfile(token);
+          const frontendUser = formatFrontendUser(backendUser);
+          set({ user: frontendUser, isLoading: false });
+        } catch (error) {
+          console.error('Failed to load user from token:', error);
+          set({ user: null, token: null, refreshToken: null, isLoading: false });
         }
       }
     }),
@@ -100,30 +112,14 @@ export const useAuthStore = create<AuthState>()(
       onRehydrateStorage: () => (state) => {
         if (state) {
           state.setLoading(false);
-          
-          // Force admin role on rehydration too
-          if (state.user && (state.user.email === 'nexus@estin.dz' || state.user.name === 'nexus')) {
-            console.log('Rehydrated admin user - forcing admin role');
-            state.user.role = 'admin';
-          }
+          // Load user after a short delay to ensure storage is ready
+          setTimeout(() => {
+            state.loadUserFromToken();
+          }, 500);
         }
       }
     }
   )
 );
 
-// Hook for components to access auth state
-export const useAuth = () => {
-  const { user, token, isLoading, login, logout, setLoading, exchangeGoogleAuth, traditionalAuth } = useAuthStore();
-  
-  return {
-    user,
-    token,
-    isLoading,
-    login,
-    logout,
-    setLoading,
-    exchangeGoogleAuth,
-    traditionalAuth
-  };
-};
+export const useAuth = () => useAuthStore();
