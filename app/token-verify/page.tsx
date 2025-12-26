@@ -1,62 +1,52 @@
-// app/token-verify/page.tsx - ONLY FOR NEW USERS
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import BackgroundPattern from '../../components/BackgroundPattern';
+import GoogleAuthButton from '../../components/GoogleAuthButton';
 
 export default function TokenVerifyPage() {
   const router = useRouter();
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [verifiedToken, setVerifiedToken] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Check for existing token on mount
+  useEffect(() => {
+    const storedToken = localStorage.getItem('pending_invite_token') || 
+                       sessionStorage.getItem('pending_invite_token');
+    if (storedToken) {
+      setVerifiedToken(storedToken);
+    }
+  }, []);
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
-
-    try {
-      // Verify token with backend
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/verify-token/`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (response.ok && data.valid) {
-        // Token is valid, redirect to Google OAuth WITH the token
-        const clientId = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID;
-        const redirectUri = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_REDIRECT_URI;
-        
-        const params = new URLSearchParams({
-          client_id: clientId!,
-          redirect_uri: redirectUri!,
-          response_type: 'code',
-          scope: 'openid email profile',
-          access_type: 'offline',
-          prompt: 'consent',
-          state: data.token, // Pass the verified token in state
-        });
-        
-        window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
-      } else {
-        setError(data.error || 'Invalid token');
-      }
-    } catch (err: any) {
-      setError('Failed to verify token');
-    } finally {
-      setLoading(false);
+    
+    if (!token.trim()) {
+      setError('Please enter a token');
+      return;
     }
+
+    if (token.length < 3) {
+      setError('Token must be at least 3 characters');
+      return;
+    }
+
+    // Store the token for OAuth flow
+    localStorage.setItem('pending_invite_token', token);
+    sessionStorage.setItem('pending_invite_token', token);
+    setVerifiedToken(token);
+    console.log('✅ Token stored for OAuth:', token);
   };
 
-  const handleBackToLogin = () => {
-    router.push('/');
+  const handleClearToken = () => {
+    localStorage.removeItem('pending_invite_token');
+    sessionStorage.removeItem('pending_invite_token');
+    setVerifiedToken(null);
+    setToken('');
+    setError('');
   };
 
   return (
@@ -81,58 +71,90 @@ export default function TokenVerifyPage() {
           
           {/* Description */}
           <p className="text-gray-300 mb-8">
-            You need a valid invite token to register as a new user. Contact your administrator to get one.
+            New users need a valid invite token to register. Contact your administrator to get one.
           </p>
           
-          {/* Token Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="bg-red-500/20 border border-red-500 text-red-300 px-4 py-3 rounded">
-                {error}
+          {/* If token is stored, show Google button */}
+          {verifiedToken ? (
+            <div className="space-y-6">
+              <div className="p-4 bg-green-500/20 border border-green-500/30 rounded-lg">
+                <p className="text-green-300 font-medium mb-2">✓ Token Stored</p>
+                <p className="text-green-400/80 text-sm break-all">
+                  Token: {verifiedToken}
+                </p>
               </div>
-            )}
-            
-            <div>
-              <input
-                type="text"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="Enter your invite token"
-                className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7CFC9D]"
-                required
-                disabled={loading}
-              />
-            </div>
-            
-            <button
-              type="submit"
-              disabled={loading || !token}
-              className="w-full bg-[#7CFC9D] text-black font-semibold py-3 px-4 rounded-lg transition-all duration-300 hover:bg-[#6ee089] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <div className="flex items-center justify-center">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-black mr-2"></div>
-                  Verifying...
+              
+              <div className="space-y-4">
+                <div className="text-left space-y-2">
+                  <p className="text-gray-300">
+                    Now click "Continue with Google" to create your account. 
+                    The invite token will be verified by the backend during registration.
+                  </p>
                 </div>
-              ) : (
-                'Continue with Google'
+                
+                <GoogleAuthButton 
+                  inviteToken={verifiedToken}
+                  isNewUser={true}
+                />
+                
+                <button
+                  onClick={handleClearToken}
+                  className="w-full text-gray-400 hover:text-white text-sm transition-colors py-2"
+                >
+                  Use different token
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {error && (
+                <div className="bg-red-500/20 border border-red-500 text-red-300 px-4 py-3 rounded text-sm">
+                  {error}
+                </div>
               )}
-            </button>
-          </form>
+              
+              <div>
+                <input
+                  type="text"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="Enter your invite token"
+                  className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7CFC9D] focus:border-transparent"
+                  required
+                  autoComplete="off"
+                  autoFocus
+                />
+              </div>
+              
+              <button
+                type="submit"
+                disabled={!token.trim()}
+                className="w-full bg-[#7CFC9D] text-black font-semibold py-3 px-4 rounded-lg transition-all duration-300 hover:bg-[#6ee089] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Store Token & Continue
+              </button>
+            </form>
+          )}
           
           <div className="mt-6">
             <button
-              onClick={handleBackToLogin}
-              className="text-gray-400 hover:text-white text-sm transition-colors"
+              onClick={() => router.push('/')}
+              className="text-gray-400 hover:text-white text-sm transition-colors flex items-center justify-center"
             >
-              ← Back to Login
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Back to Login
             </button>
           </div>
           
           {/* Note */}
           <div className="mt-8 p-4 bg-gray-800/50 rounded-lg border border-gray-700">
             <p className="text-sm text-gray-400">
-              <strong>Note:</strong> If you already have an account, just click "Continue with Google" on the login page without entering a token.
+              <strong>Note:</strong> 
+              <br />• If you already have an account, use the Google button on the login page.
+              <br />• The token will be verified by the backend during registration.
+              <br />• If token is invalid, you'll get an error and can try again.
             </p>
           </div>
         </div>

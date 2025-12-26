@@ -6,6 +6,7 @@ import {
   formatFrontendUser, 
   traditionalLogin, 
   getUserProfile,
+  updateUserProfile,
   FrontendUser, 
   AuthResponse,
   BackendUser
@@ -21,6 +22,15 @@ interface AuthState {
   setLoading: (loading: boolean) => void;
   traditionalAuth: (username: string, password: string) => Promise<void>;
   loadUserFromToken: () => Promise<void>;
+  updateProfile: (data: FormData | {
+    username?: string;
+    phone_number?: string;
+    academic_level?: string;
+    tag_ids?: number[];
+    school_id?: number;
+    image?: File | null;
+  }) => Promise<FrontendUser>;
+  checkProfileCompletion: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -51,11 +61,6 @@ export const useAuthStore = create<AuthState>()(
         });
         
         console.log('✅ [AuthStore] Login complete, user:', frontendUser);
-        
-        // Redirect to global page
-        setTimeout(() => {
-          window.location.href = '/global';
-        }, 100);
       },
 
       logout: async () => {
@@ -69,11 +74,8 @@ export const useAuthStore = create<AuthState>()(
           console.warn('Server logout failed:', error);
         }
 
-        // Clear all localStorage items related to auth
-        localStorage.removeItem('oauth_access_token');
-        localStorage.removeItem('oauth_refresh_token');
-        localStorage.removeItem('oauth_user_data');
-        localStorage.removeItem('invite_token');
+        // Clear OAuth-specific localStorage items only
+        localStorage.removeItem('pending_invite_token');
         
         set({ user: null, token: null, refreshToken: null, isLoading: false });
         window.location.href = '/';
@@ -98,8 +100,30 @@ export const useAuthStore = create<AuthState>()(
           set({ user: frontendUser, isLoading: false });
         } catch (error) {
           console.error('Failed to load user from token:', error);
-          set({ user: null, token: null, refreshToken: null, isLoading: false });
+          set({ isLoading: false });
         }
+      },
+
+      updateProfile: async (data) => {
+        const { token } = get();
+        if (!token) {
+          throw new Error('No authentication token');
+        }
+
+        try {
+          const updatedUser = await updateUserProfile(token, data);
+          const frontendUser = formatFrontendUser(updatedUser);
+          set({ user: frontendUser });
+          return frontendUser;
+        } catch (error) {
+          console.error('Failed to update profile:', error);
+          throw error;
+        }
+      },
+
+      checkProfileCompletion: () => {
+        const { user } = get();
+        return !!(user?.firstName && user?.lastName);
       }
     }),
     {
@@ -112,10 +136,6 @@ export const useAuthStore = create<AuthState>()(
       onRehydrateStorage: () => (state) => {
         if (state) {
           state.setLoading(false);
-          // Load user after a short delay to ensure storage is ready
-          setTimeout(() => {
-            state.loadUserFromToken();
-          }, 500);
         }
       }
     }

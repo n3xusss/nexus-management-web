@@ -1,4 +1,4 @@
-// app/page.tsx - COMPLETE WITH TRADITIONAL LOGIN
+// app/page.tsx - UPDATED WITH BACKGROUND PATTERN
 'use client';
 
 import BackgroundPattern from '../components/BackgroundPattern';
@@ -61,7 +61,7 @@ export default function Home() {
           {/* Login Options */}
           {!showTraditionalLogin ? (
             <div className="space-y-6">
-              {/* Google Login Button */}
+              {/* Google Login Button for returning users */}
               <GoogleAuthButton />
               
               <div className="relative my-6">
@@ -73,18 +73,7 @@ export default function Home() {
                 </div>
               </div>
               
-              {/* Admin Login Button */}
-              <button
-                onClick={() => setShowTraditionalLogin(true)}
-                className="w-full bg-gradient-to-r from-gray-800 to-gray-900 text-white font-semibold py-4 px-4 rounded-xl border border-gray-700 hover:border-gray-600 hover:shadow-lg transition-all duration-300"
-              >
-                <div className="flex items-center justify-center space-x-3">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
-                  <span>Admin Access (Traditional Login)</span>
-                </div>
-              </button>
+              
               
               {/* New User Section */}
               <div className="mt-8 p-4 bg-gray-800/50 rounded-xl border border-gray-700">
@@ -101,6 +90,8 @@ export default function Home() {
                   </svg>
                 </button>
               </div>
+
+              
             </div>
           ) : (
             <div className="space-y-6">
@@ -207,23 +198,6 @@ export default function Home() {
           )}
         </div>
       </div>
-
-      {/* Add custom styles */}
-      <style jsx global>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .animate-fadeIn {
-          animation: fadeIn 0.5s ease-out;
-        }
-        
-        /* Smooth transitions */
-        * {
-          transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
-        }
-      `}</style>
     </main>
   );
 }
