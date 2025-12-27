@@ -100,6 +100,37 @@ export interface NewMember {
   joinDate: string;
 }
 
+
+export interface CalendarEvent {
+  id: number;
+  title: string;
+  type: 'meeting' | 'event' | 'issue';
+  date?: string;
+  start_date?: string;
+  end_date?: string;
+  location?: string;
+  description: string;
+  duration?: string;
+  task_name?: string;
+  created_at?: string;
+}
+
+export interface MemberDashboardStats {
+  upcomingMeetings: number;
+  openIssues: number;
+  upcomingEvents: number;
+  tasksDueSoon: number;
+  completedTasks: number;
+  totalTasks: number;
+}
+
+export interface CalendarDay {
+  date: Date;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  events: CalendarEvent[];
+}
+
 // ====================
 // CONSTANTS
 // ====================
@@ -114,32 +145,6 @@ const roleMap: Record<'mod' | 'manager' | 'member', 'admin' | 'manager' | 'membe
 // HELPER FUNCTIONS
 // ====================
 
-/**
- * Wrapper for fetch with basic retry logic for rate limiting (429)
- */
-const fetchWithRetry = async (
-  url: string,
-  options: RequestInit,
-  maxRetries = 1
-): Promise<Response> => {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch(url, options);
-
-      if (response.status === 429 && attempt < maxRetries) {
-        const waitTime = 1000 * (attempt + 1);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-        continue;
-      }
-
-      return response;
-    } catch (error) {
-      if (attempt === maxRetries) throw error;
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-  }
-  throw new Error('Failed after retries');
-};
 
 /**
  * Formats backend user object to frontend user structure
@@ -221,15 +226,26 @@ export const exchangeGoogleCode = async (
 
     if (!response.ok) {
       console.error('Google auth failed:', responseText);
+      
+      // Try to parse JSON error
       try {
         const errorData = JSON.parse(responseText);
         throw new Error(
-          errorData.invite_token ||
+          errorData.non_field_errors?.[0] ||
           errorData.detail ||
           errorData.error ||
           `Authentication failed: ${response.status}`
         );
-      } catch {
+      } catch (jsonError) {
+        // If it's HTML (Django error page), give a user-friendly message
+        if (responseText.includes('Failed to resolve') || 
+            responseText.includes('NameResolutionError') ||
+            responseText.includes('www.googleapis.com')) {
+          throw new Error(
+            'Backend cannot connect to Google services. ' +
+            'Please check backend network connectivity or try again later.'
+          );
+        }
         throw new Error(`Authentication failed: ${response.status}`);
       }
     }
@@ -401,14 +417,195 @@ export const updateUserProfile = async (
 // DASHBOARD
 // ====================
 
+
+
+export const getMemberDashboardStats = async (token: string): Promise<MemberDashboardStats> => {
+  try {
+    const response = await fetchWithRetry(
+      `${API_BASE}/dashboard/member_stats/`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+      2,
+      2000
+    );
+
+    if (!response.ok) {
+      console.warn('Failed to fetch member dashboard stats, using defaults');
+      return {
+        upcomingMeetings: 0,
+        openIssues: 0,
+        upcomingEvents: 0,
+        tasksDueSoon: 0,
+        completedTasks: 0,
+        totalTasks: 0,
+      };
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching member dashboard stats:', error);
+    return {
+      upcomingMeetings: 0,
+      openIssues: 0,
+      upcomingEvents: 0,
+      tasksDueSoon: 0,
+      completedTasks: 0,
+      totalTasks: 0,
+    };
+  }
+};
+
+export const getMemberCalendarEvents = async (token: string): Promise<{
+  meetings: CalendarEvent[];
+  events: CalendarEvent[];
+  issues: CalendarEvent[];
+}> => {
+  try {
+    const response = await fetchWithRetry(
+      `${API_BASE}/dashboard/member_calendar_events/`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+      2,
+      2000
+    );
+
+    if (!response.ok) {
+      console.warn('Failed to fetch member calendar events');
+      return {
+        meetings: [],
+        events: [],
+        issues: [],
+      };
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching member calendar events:', error);
+    return {
+      meetings: [],
+      events: [],
+      issues: [],
+    };
+  }
+};
+
+
+
+
+const fetchWithRetry = async (
+  url: string,
+  options: RequestInit,
+  maxRetries = 2, // Increased from 1 to 2
+  retryDelay = 2000 // Increased initial delay
+): Promise<Response> => {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+
+      // Handle rate limiting with exponential backoff
+      if (response.status === 429 && attempt < maxRetries) {
+        const waitTime = retryDelay * Math.pow(2, attempt); // Exponential backoff
+        console.log(`Rate limited, waiting ${waitTime}ms before retry ${attempt + 1}`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+
+      // Handle server errors
+      if (response.status >= 500 && attempt < maxRetries) {
+        const waitTime = 1000 * (attempt + 1);
+        console.log(`Server error ${response.status}, waiting ${waitTime}ms before retry`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      if (attempt === maxRetries) throw error;
+      const waitTime = 1000 * (attempt + 1);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+  }
+  throw new Error('Failed after retries');
+};
+
+export const getRecentActivities = async (token: string): Promise<Activity[]> => {
+  try {
+    // Add a small delay to prevent rapid requests
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    const response = await fetchWithRetry(
+      `${API_BASE}/dashboard/activities/`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+      2, // maxRetries
+      2000 // retryDelay
+    );
+
+    if (!response.ok) {
+      console.warn('Failed to fetch activities:', response.status);
+      return [];
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching activities:', error);
+    return [];
+  }
+};
+
+export const getNewMembers = async (token: string): Promise<NewMember[]> => {
+  try {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    const response = await fetchWithRetry(
+      `${API_BASE}/dashboard/new_members/`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+      2,
+      2000
+    );
+
+    if (!response.ok) {
+      console.warn('Failed to fetch new members:', response.status);
+      return [];
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching new members:', error);
+    return [];
+  }
+};
+
 export const getDashboardStats = async (token: string): Promise<DashboardStats> => {
   try {
-    const response = await fetchWithRetry(`${API_BASE}/dashboard/stats/`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
+    const response = await fetchWithRetry(
+      `${API_BASE}/dashboard/stats/`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       },
-    });
+      2,
+      2000
+    );
 
     if (!response.ok) {
       console.warn('Failed to fetch dashboard stats, using defaults');
@@ -438,47 +635,8 @@ export const getDashboardStats = async (token: string): Promise<DashboardStats> 
   }
 };
 
-export const getRecentActivities = async (token: string): Promise<Activity[]> => {
-  try {
-    const response = await fetchWithRetry(`${API_BASE}/dashboard/activities/`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
 
-    if (!response.ok) {
-      console.warn('Failed to fetch activities');
-      return [];
-    }
 
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching activities:', error);
-    return [];
-  }
-};
-
-export const getNewMembers = async (token: string): Promise<NewMember[]> => {
-  try {
-    const response = await fetchWithRetry(`${API_BASE}/dashboard/new_members/`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      console.warn('Failed to fetch new members');
-      return [];
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching new members:', error);
-    return [];
-  }
-};
 
 // ====================
 // DATA LOOKUPS
@@ -487,9 +645,9 @@ export const getNewMembers = async (token: string): Promise<NewMember[]> => {
 /**
  * Fetch all available tags (for user profile selection)
  */
-export const getTags = async (): Promise<Array<{ id: number; tag_name: string; color: string }>> => {
+
+export const getTags = async (token?: string): Promise<Array<{ id: number; tag_name: string; color: string }>> => {
   try {
-    const token = localStorage.getItem('oauth_access_token') || '';
     const response = await fetch(`${API_BASE}/tags/`, {
       headers: {
         'Authorization': token ? `Bearer ${token}` : '',
@@ -513,9 +671,8 @@ export const getTags = async (): Promise<Array<{ id: number; tag_name: string; c
 /**
  * Fetch all schools (for user profile selection)
  */
-export const getSchools = async (): Promise<Array<{ id: number; school_name: string; school_description: string }>> => {
+export const getSchools = async (token?: string): Promise<Array<{ id: number; school_name: string; school_description: string }>> => {
   try {
-    const token = localStorage.getItem('oauth_access_token') || '';
     const response = await fetch(`${API_BASE}/schools/`, {
       headers: {
         'Authorization': token ? `Bearer ${token}` : '',

@@ -1,4 +1,4 @@
-// app/page.tsx - UPDATED WITH BACKGROUND PATTERN
+// app/page.tsx - UPDATED
 'use client';
 
 import BackgroundPattern from '../components/BackgroundPattern';
@@ -9,7 +9,7 @@ import { useAuth } from '../lib/stores/authStore';
 
 export default function Home() {
   const router = useRouter();
-  const { traditionalAuth } = useAuth();
+  const { traditionalAuth, inviteToken } = useAuth(); // ADD inviteToken here
   const [showTraditionalLogin, setShowTraditionalLogin] = useState(false);
   const [traditionalFormData, setTraditionalFormData] = useState({
     username: '',
@@ -62,7 +62,7 @@ export default function Home() {
           {!showTraditionalLogin ? (
             <div className="space-y-6">
               {/* Google Login Button for returning users */}
-              <GoogleAuthButton />
+              <GoogleAuthButton inviteToken={inviteToken}/> {/* Now inviteToken is defined */}
               
               <div className="relative my-6">
                 <div className="absolute inset-0 flex items-center">
@@ -72,8 +72,6 @@ export default function Home() {
                   <span className="px-2 bg-[#2A2A2A] text-gray-400">Or</span>
                 </div>
               </div>
-              
-              
               
               {/* New User Section */}
               <div className="mt-8 p-4 bg-gray-800/50 rounded-xl border border-gray-700">
@@ -90,8 +88,6 @@ export default function Home() {
                   </svg>
                 </button>
               </div>
-
-              
             </div>
           ) : (
             <div className="space-y-6">

@@ -35,7 +35,7 @@ const LS_KEYS = {
 
 export default function RegistrationForm() {
   const router = useRouter();
-  const { updateProfile, login, user, token } = useAuth();
+  const { updateProfile, login, user, token, oauthPending, completeOAuthRegistration, clearOAuthPending } = useAuth(); // NEW
 
   const [formData, setFormData] = useState<RegistrationData>({
     first_name: '',
@@ -53,79 +53,110 @@ export default function RegistrationForm() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'personal' | 'academic'>('personal');
 
-  // Check if this is an OAuth user (has tokens in localStorage)
-  const isOAuthUser = () => {
-    return !!localStorage.getItem(LS_KEYS.access);
+  // Check if this is an OAuth registration
+  const isOAuthRegistration = () => {
+    return !!oauthPending;
   };
 
   useEffect(() => {
     console.log('🔍 RegistrationForm - Initializing...');
     
-    const loadInitialData = async () => {
-      try {
-        // For logged-in users: if already have complete profile, redirect immediately
-        if (user && token && user.firstName && user.lastName && !isOAuthUser()) {
-          console.log('✅ User already has complete profile, redirecting to /global');
-          router.push('/global');
-          return;
-        }
-
-        // Pre-fill form with any existing data
-        if (user && token) {
-          // Logged-in user completing profile
-          setFormData((prev) => ({
-            ...prev,
-            first_name: user.firstName || prev.first_name || '',
-            last_name: user.lastName || prev.last_name || '',
-            phone_number: user.phoneNumber || prev.phone_number || '',
-            academic_level: user.academicLevel || prev.academic_level || '',
-          }));
-        } else if (isOAuthUser()) {
-          // OAuth user completing registration
-          const userData = localStorage.getItem(LS_KEYS.user);
-          if (userData) {
-            try {
-              const parsedUser = JSON.parse(userData);
-              const emailName = parsedUser?.email?.split('@')?.[0] || '';
-              setFormData((prev) => ({
-                ...prev,
-                first_name: parsedUser?.first_name || prev.first_name || emailName,
-                last_name: parsedUser?.last_name || prev.last_name || '',
-              }));
-            } catch (err) {
-              console.error('Failed to parse OAuth user data:', err);
-            }
-          }
-        }
-
-        // Load tags and schools
-        const [tags, schools] = await Promise.all([getTags(), getSchools()]);
-        
-        const normalizedTags: Tag[] = tags.map((t: any) => ({
-          id: t.id,
-          tag_name: t.tag_name ?? t.tagname ?? '',
-          color: t.color,
-        })).filter((t: Tag) => !!t.tag_name);
-
-        const normalizedSchools: School[] = schools.map((s: any) => ({
-          id: s.id,
-          school_name: s.school_name ?? s.schoolname ?? '',
-          school_description: s.school_description ?? '',
-        })).filter((s: School) => !!s.school_name);
-
-        setAvailableTags(normalizedTags);
-        setAvailableSchools(normalizedSchools);
-
-      } catch (err) {
-        console.error('Failed to load form data:', err);
-        setError('Failed to load registration data. Please refresh the page.');
-      } finally {
-        setLoading(false);
+const loadInitialData = async () => {
+  try {
+    // Check 1: Already logged in user updating profile
+    if (user && token && !oauthPending) {
+      // If already have complete profile, redirect
+      if (user.firstName && user.lastName) {
+        console.log('✅ User already has complete profile, redirecting to /global');
+        router.push('/global');
+        return;
       }
-    };
+      
+      // Pre-fill with existing user data
+      setFormData((prev) => ({
+        ...prev,
+        first_name: user.firstName || prev.first_name || '',
+        last_name: user.lastName || prev.last_name || '',
+        phone_number: user.phoneNumber || prev.phone_number || '',
+        academic_level: user.academicLevel || prev.academic_level || '',
+      }));
+      
+      // For logged-in user, use their token
+      const tokenToUse = token;
+      
+      // Load tags and schools with the logged-in user's token
+      const [tags, schools] = await Promise.all([
+        getTags(tokenToUse), 
+        getSchools(tokenToUse)
+      ]);
+      
+      const normalizedTags: Tag[] = tags.map((t: any) => ({
+        id: t.id,
+        tag_name: t.tag_name ?? t.tagname ?? '',
+        color: t.color,
+      })).filter((t: Tag) => !!t.tag_name);
+
+      const normalizedSchools: School[] = schools.map((s: any) => ({
+        id: s.id,
+        school_name: s.school_name ?? s.schoolname ?? '',
+        school_description: s.school_description ?? '',
+      })).filter((s: School) => !!s.school_name);
+
+      setAvailableTags(normalizedTags);
+      setAvailableSchools(normalizedSchools);
+    }
+    // Check 2: OAuth registration
+    else if (oauthPending) {
+      console.log('🔍 Loading OAuth registration data:', oauthPending.user);
+      
+      const emailName = oauthPending.user?.email?.split('@')?.[0] || '';
+      setFormData((prev) => ({
+        ...prev,
+        first_name: oauthPending.user?.first_name || prev.first_name || emailName,
+        last_name: oauthPending.user?.last_name || prev.last_name || '',
+      }));
+      
+      // For OAuth registration, use the OAuth access token
+      const tokenToUse = oauthPending.access;
+      
+      // Load tags and schools with OAuth token
+      const [tags, schools] = await Promise.all([
+        getTags(tokenToUse), 
+        getSchools(tokenToUse)
+      ]);
+      
+      const normalizedTags: Tag[] = tags.map((t: any) => ({
+        id: t.id,
+        tag_name: t.tag_name ?? t.tagname ?? '',
+        color: t.color,
+      })).filter((t: Tag) => !!t.tag_name);
+
+      const normalizedSchools: School[] = schools.map((s: any) => ({
+        id: s.id,
+        school_name: s.school_name ?? s.schoolname ?? '',
+        school_description: s.school_description ?? '',
+      })).filter((s: School) => !!s.school_name);
+
+      setAvailableTags(normalizedTags);
+      setAvailableSchools(normalizedSchools);
+    }
+    // Check 3: No user data - should redirect
+    else {
+      console.log('❌ No user data found, redirecting to home');
+      router.push('/');
+      return;
+    }
+
+  } catch (err) {
+    console.error('Failed to load form data:', err);
+    setError('Failed to load registration data. Please refresh the page.');
+  } finally {
+    setLoading(false);
+  }
+};
 
     loadInitialData();
-  }, [user, token, router]);
+  }, [user, token, oauthPending, router]);
 
   const validateForm = (): string | null => {
     if (!formData.first_name.trim() || !formData.last_name.trim()) {
@@ -133,11 +164,12 @@ export default function RegistrationForm() {
     }
     
     if (formData.phone_number && !/^0[567]\d{8}$/.test(formData.phone_number)) {
-      return 'Phone number must be a valid Moroccan number (05, 06, or 07 followed by 8 digits)';
+      return 'Phone number must be a valid Algerian number (05, 06, or 07 followed by 8 digits)';
     }
     
     return null;
   };
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,19 +185,11 @@ export default function RegistrationForm() {
 
       console.log('📤 Submitting profile data:', formData);
 
-      if (isOAuthUser()) {
-        // Handle OAuth users (Google login)
-        const accessToken = localStorage.getItem(LS_KEYS.access);
-        const refreshToken = localStorage.getItem(LS_KEYS.refresh) || '';
-        const userData = localStorage.getItem(LS_KEYS.user);
-
-        if (!accessToken) {
-          throw new Error('No authentication token found. Please restart the registration process.');
-        }
-
+      if (oauthPending) {
+        // OAuth registration flow
         const base = process.env.NEXT_PUBLIC_API_BASE_URL;
         
-        // Prepare data in the format backend expects
+        // Prepare request data
         const requestData: any = {
           first_name: formData.first_name,
           last_name: formData.last_name,
@@ -187,11 +211,13 @@ export default function RegistrationForm() {
           requestData.school_id = formData.school_id;
         }
 
+        console.log('📤 Updating profile with OAuth token:', oauthPending.access);
+        
         const response = await fetch(`${base}/profile/`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`,
+            'Authorization': `Bearer ${oauthPending.access}`,
           },
           body: JSON.stringify(requestData),
         });
@@ -210,38 +236,26 @@ export default function RegistrationForm() {
         const updatedUser = await response.json();
         console.log('✅ Profile update successful:', updatedUser);
 
-        // Clear OAuth data from localStorage
-        localStorage.removeItem(LS_KEYS.access);
-        localStorage.removeItem(LS_KEYS.refresh);
-        localStorage.removeItem(LS_KEYS.user);
-        localStorage.removeItem(LS_KEYS.invite);
-
-        // Create auth response and log in - CRITICAL FIX: Ensure we use the updated user data
-        const authResponse = {
-          access: accessToken,
-          refresh: refreshToken,
-          user: {
-            ...updatedUser,
-            first_name: formData.first_name, // Ensure first_name is set
-            last_name: formData.last_name,   // Ensure last_name is set
-          },
-        };
-
-        console.log('✅ Final auth response for login:', authResponse);
+        // Clear legacy storage
+        localStorage.removeItem('oauth_access_token');
+        localStorage.removeItem('oauth_refresh_token');
+        localStorage.removeItem('oauth_user_data');
+        localStorage.removeItem('pending_invite_token');
         
-        // Login user via auth store - this updates the auth state
-        login(authResponse);
+        // Complete registration in auth store
+        completeOAuthRegistration(updatedUser);
+        
+        // Clear OAuth pending data
+        clearOAuthPending();
         
         // Redirect will happen via CompleteRegistrationPage's useEffect
-        // when it detects the user now has complete profile
         
       } else {
-        // Handle logged-in users updating profile
-        const updateData: any = {};
-        
-        // Always include first_name and last_name
-        updateData.first_name = formData.first_name;
-        updateData.last_name = formData.last_name;
+        // Logged-in user updating profile
+        const updateData: any = {
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+        };
         
         if (formData.phone_number) {
           updateData.phone_number = formData.phone_number;
@@ -259,18 +273,16 @@ export default function RegistrationForm() {
           updateData.school_id = formData.school_id;
         }
 
-        console.log('📤 Sending update data:', updateData);
+        console.log('📤 Sending update data for logged-in user:', updateData);
         
-        // Call updateProfile - this should update the auth store
+        // Update profile via auth store
         await updateProfile(updateData);
-        
-        // No redirect here - CompleteRegistrationPage will handle it
       }
 
     } catch (err: any) {
       console.error('❌ Registration error:', err);
       
-      // More specific error handling
+      // Error handling remains the same
       if (err.message.includes('phone number')) {
         setError('Invalid phone number format. Please use 05, 06, or 07 followed by 8 digits.');
       } else if (err.message.includes('required')) {
@@ -319,17 +331,17 @@ export default function RegistrationForm() {
             </svg>
           </div>
           <h1 className="text-4xl font-bold text-white mb-3 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-            {isOAuthUser() ? 'Complete Your Profile' : 'Update Your Profile'}
+            {isOAuthRegistration()? 'Complete Your Profile' : 'Update Your Profile'}
           </h1>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            {isOAuthUser() 
+            {isOAuthRegistration()
               ? 'Just a few more details to personalize your NexusHub experience'
               : 'Update your profile information to enhance your experience'}
           </p>
         </div>
 
         {/* Progress Steps for OAuth users */}
-        {isOAuthUser() && (
+        {isOAuthRegistration() && (
           <div className="flex justify-center mb-10">
             <div className="flex items-center space-x-8">
               <div className="flex items-center">
@@ -456,7 +468,7 @@ export default function RegistrationForm() {
                       <span className="text-gray-400">📱</span>
                     </div>
                     Phone Number
-                    <span className="text-xs text-gray-500 ml-2">(Moroccan format: 05XXXXXXXX)</span>
+                    <span className="text-xs text-gray-500 ml-2">(Algerian format: 05XXXXXXXX)</span>
                   </label>
                   <input
                     type="tel"
@@ -640,7 +652,7 @@ export default function RegistrationForm() {
                       </>
                     ) : (
                       <>
-                        {isOAuthUser() ? 'Complete Registration' : 'Update Profile'}
+                        {isOAuthRegistration() ? 'Complete Registration' : 'Update Profile'}
                         <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>

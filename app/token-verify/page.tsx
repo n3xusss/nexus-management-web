@@ -1,51 +1,42 @@
+// app/token-verify/page.tsx - UPDATED
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import BackgroundPattern from '../../components/BackgroundPattern';
 import GoogleAuthButton from '../../components/GoogleAuthButton';
+import { useAuth } from '../../lib/stores/authStore'; // NEW
 
 export default function TokenVerifyPage() {
   const router = useRouter();
-  const [token, setToken] = useState('');
+  const { inviteToken, setInviteToken, clearInviteToken } = useAuth(); // NEW
+  const [tokenInput, setTokenInput] = useState('');
   const [error, setError] = useState('');
-  const [verifiedToken, setVerifiedToken] = useState<string | null>(null);
-
-  // Check for existing token on mount
-  useEffect(() => {
-    const storedToken = localStorage.getItem('pending_invite_token') || 
-                       sessionStorage.getItem('pending_invite_token');
-    if (storedToken) {
-      setVerifiedToken(storedToken);
-    }
-  }, []);
+  
+  // No longer need local state for verifiedToken - use auth store directly
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     
-    if (!token.trim()) {
+    if (!tokenInput.trim()) {
       setError('Please enter a token');
       return;
     }
 
-    if (token.length < 3) {
-      setError('Token must be at least 3 characters');
+    if (tokenInput.length < 3) {
+      setError('Invalid token length');
       return;
     }
 
-    // Store the token for OAuth flow
-    localStorage.setItem('pending_invite_token', token);
-    sessionStorage.setItem('pending_invite_token', token);
-    setVerifiedToken(token);
-    console.log('✅ Token stored for OAuth:', token);
+    // Store the token in auth store
+    setInviteToken(tokenInput);
+    console.log('✅ Token stored in auth store:', tokenInput);
   };
 
   const handleClearToken = () => {
-    localStorage.removeItem('pending_invite_token');
-    sessionStorage.removeItem('pending_invite_token');
-    setVerifiedToken(null);
-    setToken('');
+    clearInviteToken();
+    setTokenInput('');
     setError('');
   };
 
@@ -74,13 +65,13 @@ export default function TokenVerifyPage() {
             New users need a valid invite token to register. Contact your administrator to get one.
           </p>
           
-          {/* If token is stored, show Google button */}
-          {verifiedToken ? (
+          {/* If token is stored in auth store, show Google button */}
+          {inviteToken ? (
             <div className="space-y-6">
               <div className="p-4 bg-green-500/20 border border-green-500/30 rounded-lg">
                 <p className="text-green-300 font-medium mb-2">✓ Token Stored</p>
                 <p className="text-green-400/80 text-sm break-all">
-                  Token: {verifiedToken}
+                  Token: {inviteToken}
                 </p>
               </div>
               
@@ -93,7 +84,7 @@ export default function TokenVerifyPage() {
                 </div>
                 
                 <GoogleAuthButton 
-                  inviteToken={verifiedToken}
+                  inviteToken={inviteToken}
                   isNewUser={true}
                 />
                 
@@ -116,8 +107,8 @@ export default function TokenVerifyPage() {
               <div>
                 <input
                   type="text"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
                   placeholder="Enter your invite token"
                   className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7CFC9D] focus:border-transparent"
                   required
@@ -128,7 +119,7 @@ export default function TokenVerifyPage() {
               
               <button
                 type="submit"
-                disabled={!token.trim()}
+                disabled={!tokenInput.trim()}
                 className="w-full bg-[#7CFC9D] text-black font-semibold py-3 px-4 rounded-lg transition-all duration-300 hover:bg-[#6ee089] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Store Token & Continue

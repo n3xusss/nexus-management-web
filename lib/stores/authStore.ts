@@ -1,4 +1,4 @@
-// lib/stores/authStore.ts - FIXED
+// lib/stores/authStore.ts - COMPLETE VERSION
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { 
@@ -12,14 +12,25 @@ import {
   BackendUser
 } from '../api';
 
+interface OAuthPendingData {
+  access: string;
+  refresh: string;
+  user: BackendUser;
+  inviteToken?: string;
+}
+
 interface AuthState {
   user: FrontendUser | null;
   token: string | null;
   refreshToken: string | null;
   isLoading: boolean;
+  oauthPending: OAuthPendingData | null;
+  inviteToken: string | null;
+  
+  // Methods
+  setLoading: (loading: boolean) => void;
   login: (authData: AuthResponse) => void;
   logout: () => Promise<void>;
-  setLoading: (loading: boolean) => void;
   traditionalAuth: (username: string, password: string) => Promise<void>;
   loadUserFromToken: () => Promise<void>;
   updateProfile: (data: FormData | {
@@ -31,6 +42,15 @@ interface AuthState {
     image?: File | null;
   }) => Promise<FrontendUser>;
   checkProfileCompletion: () => boolean;
+  
+  // OAuth methods
+  setOAuthPending: (data: OAuthPendingData) => void;
+  clearOAuthPending: () => void;
+  completeOAuthRegistration: (updatedUser: BackendUser) => void;
+  
+  // Invite token methods
+  setInviteToken: (token: string) => void;
+  clearInviteToken: () => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -40,6 +60,8 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       refreshToken: null,
       isLoading: true,
+      oauthPending: null,
+      inviteToken: null,
 
       setLoading: (loading) => set({ isLoading: loading }),
 
@@ -57,10 +79,51 @@ export const useAuthStore = create<AuthState>()(
           user: frontendUser, 
           token: authData.access, 
           refreshToken: authData.refresh,
-          isLoading: false
+          isLoading: false,
+          oauthPending: null,
+          inviteToken: null // Clear any invite token on successful login
         });
         
         console.log('✅ [AuthStore] Login complete, user:', frontendUser);
+      },
+
+      setOAuthPending: (data: OAuthPendingData) => {
+        console.log('🔍 [AuthStore] Setting OAuth pending data:', data);
+        set({ oauthPending: data, isLoading: false });
+      },
+
+      clearOAuthPending: () => {
+        console.log('🔍 [AuthStore] Clearing OAuth pending data');
+        set({ oauthPending: null });
+      },
+
+      completeOAuthRegistration: (updatedUser: BackendUser) => {
+        const { oauthPending } = get();
+        if (!oauthPending) {
+          console.error('No pending OAuth data to complete');
+          return;
+        }
+
+        console.log('🔍 [AuthStore] Completing OAuth registration with user:', updatedUser);
+        
+        // Merge updated user data with OAuth tokens
+        const authData: AuthResponse = {
+          access: oauthPending.access,
+          refresh: oauthPending.refresh,
+          user: updatedUser
+        };
+        
+        get().login(authData);
+      },
+
+      setInviteToken: (token: string) => {
+        console.log('🔍 [AuthStore] Setting invite token:', token);
+        set({ inviteToken: token });
+      },
+
+      clearInviteToken: () => {
+        console.log('🔍 [AuthStore] Clearing invite token');
+        set({ inviteToken: null });
       },
 
       logout: async () => {
@@ -74,10 +137,17 @@ export const useAuthStore = create<AuthState>()(
           console.warn('Server logout failed:', error);
         }
 
-        // Clear OAuth-specific localStorage items only
-        localStorage.removeItem('pending_invite_token');
+        // Clear ALL legacy localStorage items
+
         
-        set({ user: null, token: null, refreshToken: null, isLoading: false });
+        set({ 
+          user: null, 
+          token: null, 
+          refreshToken: null, 
+          isLoading: false,
+          oauthPending: null,
+          inviteToken: null 
+        });
         window.location.href = '/';
       },
 
@@ -131,10 +201,25 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({ 
         user: state.user, 
         token: state.token,
-        refreshToken: state.refreshToken 
+        refreshToken: state.refreshToken,
+        oauthPending: state.oauthPending,
+        inviteToken: state.inviteToken
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
+          // Clear legacy localStorage items on rehydration
+          const legacyItems = [
+            'oauth_access_token',
+            'oauth_refresh_token', 
+            'oauth_user_data',
+            'pending_invite_token'
+          ];
+          
+          legacyItems.forEach(item => {
+            localStorage.removeItem(item);
+            sessionStorage.removeItem(item);
+          });
+          
           state.setLoading(false);
         }
       }

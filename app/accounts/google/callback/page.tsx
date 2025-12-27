@@ -1,4 +1,3 @@
-// app/callback/page.tsx 
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -10,7 +9,7 @@ import { exchangeGoogleCode, getUserProfile } from '../../../../lib/api';
 export default function GoogleCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login } = useAuth();
+  const { login, setOAuthPending, inviteToken, clearInviteToken } = useAuth(); // Added inviteToken and clearInviteToken
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [error, setError] = useState<string>('');
 
@@ -23,7 +22,8 @@ export default function GoogleCallback() {
         console.log('🔍 OAuth Callback received:', { 
           code: !!code, 
           errorParam,
-          state: searchParams?.get('state')
+          state: searchParams?.get('state'),
+          hasInviteTokenInStore: !!inviteToken
         });
 
         if (errorParam) {
@@ -34,44 +34,50 @@ export default function GoogleCallback() {
           throw new Error('No authorization code received from Google');
         }
 
-        // Get pending invite token from storage
-        const pendingToken = localStorage.getItem('pending_invite_token') || 
-                            sessionStorage.getItem('pending_invite_token');
+        // Get invite token from auth store (not localStorage)
+        const pendingToken = inviteToken;
+        
+        // Clean up any legacy localStorage items
+        localStorage.removeItem('pending_invite_token');
+        sessionStorage.removeItem('pending_invite_token');
         
         const redirectUri = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_REDIRECT_URI || 
                            `${window.location.origin}/callback`;
         
         console.log('🔍 Processing callback...', {
           hasInviteToken: !!pendingToken,
-          redirectUri
+          redirectUri,
+          tokenFromStore: pendingToken
         });
 
-        // Exchange code for tokens (with invite token if present)
+        // Exchange code for tokens using invite token from auth store
         const authData = await exchangeGoogleCode(code, redirectUri, pendingToken || undefined);
         
-        // NEW: Check if this is a NEW user (invite token present)
+        // Clear invite token from auth store since we've used it
+        if (pendingToken) {
+          clearInviteToken();
+        }
+        
         const isNewUser = !!pendingToken;
         
         console.log('🔍 User type check:', { isNewUser, pendingToken });
 
         if (isNewUser) {
-          // NEW USER FLOW: Always go to registration, even if backend returns incomplete data
-          console.log('🔄 New user with invite token, redirecting to registration');
+          // NEW USER FLOW: Store OAuth data in auth store for registration
+          console.log('🔄 New user with invite token, storing OAuth data in auth store');
           
-          // Store OAuth data in localStorage for registration page
-          localStorage.setItem('oauth_access_token', authData.access);
-          localStorage.setItem('oauth_refresh_token', authData.refresh || '');
-          localStorage.setItem('oauth_user_data', JSON.stringify(authData.user));
-          
-          // Clear invite token now (we've used it)
-          localStorage.removeItem('pending_invite_token');
-          sessionStorage.removeItem('pending_invite_token');
+          setOAuthPending({
+            access: authData.access,
+            refresh: authData.refresh || '',
+            user: authData.user,
+            inviteToken: pendingToken || undefined
+          });
           
           // Redirect to complete registration
           router.push('/register/complete');
           
         } else {
-          // EXISTING USER FLOW: Check if they have completed profile
+          // EXISTING USER FLOW
           console.log('🔍 Fetching complete user profile for existing user...');
           const completeUserProfile = await getUserProfile(authData.access);
           
@@ -81,8 +87,7 @@ export default function GoogleCallback() {
             ...completeUserProfile
           };
 
-          console.log('✅ Existing user profile:', {
-            user: authData.user,
+          console.log('✅ Existing user profile check:', {
             hasPhone: !!authData.user.phone_number,
             hasAcademicLevel: !!authData.user.academic_level,
             hasTags: !!(authData.user.tags && authData.user.tags.length > 0),
@@ -100,25 +105,16 @@ export default function GoogleCallback() {
             authData.user.first_name ||
             authData.user.last_name;
 
-          console.log('🔍 Registration check for existing user:', {
-            hasRegistrationData,
-            phone: authData.user.phone_number,
-            academicLevel: authData.user.academic_level,
-            tags: authData.user.tags,
-            school: authData.user.school,
-            firstName: authData.user.first_name,
-            lastName: authData.user.last_name
-          });
-
           if (!hasRegistrationData) {
             console.log('🔄 Existing user needs to complete profile');
             
-            // Store OAuth data in localStorage for registration page
-            localStorage.setItem('oauth_access_token', authData.access);
-            localStorage.setItem('oauth_refresh_token', authData.refresh || '');
-            localStorage.setItem('oauth_user_data', JSON.stringify(authData.user));
+            // Store OAuth data in auth store for registration
+            setOAuthPending({
+              access: authData.access,
+              refresh: authData.refresh || '',
+              user: authData.user
+            });
             
-            // Redirect to complete registration
             router.push('/register/complete');
           } else {
             console.log('✅ Existing user with complete profile, logging in');
@@ -130,10 +126,9 @@ export default function GoogleCallback() {
               console.log('⚠️ Using username as fallback name:', authData.user.username);
             }
             
-            // Login user (this will store tokens in auth store)
+            // Login user
             login(authData);
             
-            // Wait a moment for state update then redirect
             setTimeout(() => {
               router.push('/global');
             }, 100);
@@ -152,7 +147,7 @@ export default function GoogleCallback() {
     if (searchParams) {
       handleCallback();
     }
-  }, [searchParams, login, router]);
+  }, [searchParams, login, router, setOAuthPending, inviteToken, clearInviteToken]);
 
   // Loading, error, and success UI remain exactly the same...
   if (status === 'loading') {

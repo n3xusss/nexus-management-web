@@ -9,7 +9,7 @@ import RegistrationForm from '../../../components/RegistrationForm';
 
 export default function CompleteRegistrationPage() {
   const router = useRouter();
-  const { user, token, isLoading } = useAuth();
+  const { user, token, isLoading, oauthPending } = useAuth(); // Added oauthPending
   const [shouldShowForm, setShouldShowForm] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
 
@@ -21,32 +21,37 @@ export default function CompleteRegistrationPage() {
       // Wait for auth store to initialize
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Check 1: Already logged in user with auth store token
-      if (user && token && !isLoading) {
-        console.log('🔍 User is already logged in via auth store, redirecting to /global');
+      // Check 1: Already logged in user with complete profile
+      if (user && token && !isLoading && user.firstName && user.lastName && !oauthPending) {
+        console.log('✅ User already has complete profile, redirecting to /global');
         router.push('/global');
         return;
       }
 
-      // Check 2: OAuth user data in localStorage (new user or user completing registration)
-      const oauthAccessToken = localStorage.getItem('oauth_access_token');
-      const oauthUserData = localStorage.getItem('oauth_user_data');
-      
-      if (oauthAccessToken && oauthUserData) {
-        console.log('✅ OAuth user data found, showing registration form');
+      // Check 2: OAuth registration in progress
+      if (oauthPending) {
+        console.log('✅ OAuth registration in progress, showing form');
         setShouldShowForm(true);
         setIsChecking(false);
         return;
       }
 
-      // Check 3: No user data found at all
-      console.log('❌ No user data found, redirecting to home');
+      // Check 3: Logged in user needs profile completion
+      if (user && token && !isLoading) {
+        console.log('✅ Logged-in user needs profile completion, showing form');
+        setShouldShowForm(true);
+        setIsChecking(false);
+        return;
+      }
+
+      // Check 4: No user data found
+      console.log('❌ No valid user state for registration, redirecting to home');
       router.push('/');
       setIsChecking(false);
     };
 
     checkUserState();
-  }, [user, token, isLoading, router]);
+  }, [user, token, isLoading, oauthPending, router]);
 
   if (isChecking) {
     return (

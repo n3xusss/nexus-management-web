@@ -1,5 +1,6 @@
-// components/GoogleAuthButton.tsx - FIXED WITH CORRECT REDIRECT URI
 'use client';
+
+import { useAuth } from '../lib/stores/authStore';
 
 interface GoogleAuthButtonProps {
   inviteToken?: string;
@@ -12,6 +13,7 @@ export default function GoogleAuthButton({
   isNewUser = false,
   onClick 
 }: GoogleAuthButtonProps) {
+  const { setInviteToken } = useAuth(); // NEW
   
   const handleGoogleAuth = () => {
     if (onClick) {
@@ -27,17 +29,16 @@ export default function GoogleAuthButton({
       return;
     }
 
-    // Store invite token if provided
+    // Store invite token in auth store if provided
     if (inviteToken) {
-      localStorage.setItem('pending_invite_token', inviteToken);
-      sessionStorage.setItem('pending_invite_token', inviteToken);
-      console.log('🔍 Stored invite token for new user:', inviteToken);
+      setInviteToken(inviteToken);
+      console.log('🔍 Stored invite token in auth store:', inviteToken);
     }
 
     // Build Google OAuth URL
     const params = new URLSearchParams({
       client_id: clientId,
-      redirect_uri: redirectUri,  // MUST match exactly what's in Google Cloud Console
+      redirect_uri: redirectUri,
       response_type: 'code',
       scope: 'openid email profile',
       access_type: 'offline',
