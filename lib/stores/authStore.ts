@@ -1,10 +1,9 @@
-// lib/stores/authStore.ts - COMPLETE VERSION
+// lib/stores/authStore.ts - Cleaned up version
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { 
   logout, 
   formatFrontendUser, 
-  traditionalLogin, 
   getUserProfile,
   updateUserProfile,
   FrontendUser, 
@@ -31,7 +30,6 @@ interface AuthState {
   setLoading: (loading: boolean) => void;
   login: (authData: AuthResponse) => void;
   logout: () => Promise<void>;
-  traditionalAuth: (username: string, password: string) => Promise<void>;
   loadUserFromToken: () => Promise<void>;
   updateProfile: (data: FormData | {
     username?: string;
@@ -53,7 +51,8 @@ interface AuthState {
   clearInviteToken: () => void;
 }
 
-export const useAuthStore = create<AuthState>()(
+// Create the store
+export const authStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
@@ -66,8 +65,6 @@ export const useAuthStore = create<AuthState>()(
       setLoading: (loading) => set({ isLoading: loading }),
 
       login: (authData: AuthResponse) => {
-        console.log('🔍 [AuthStore] Login with auth data:', authData);
-        
         if (!authData.user || !authData.access) {
           console.error('Invalid auth data:', authData);
           return;
@@ -81,19 +78,15 @@ export const useAuthStore = create<AuthState>()(
           refreshToken: authData.refresh,
           isLoading: false,
           oauthPending: null,
-          inviteToken: null // Clear any invite token on successful login
+          inviteToken: null
         });
-        
-        console.log('✅ [AuthStore] Login complete, user:', frontendUser);
       },
 
       setOAuthPending: (data: OAuthPendingData) => {
-        console.log('🔍 [AuthStore] Setting OAuth pending data:', data);
         set({ oauthPending: data, isLoading: false });
       },
 
       clearOAuthPending: () => {
-        console.log('🔍 [AuthStore] Clearing OAuth pending data');
         set({ oauthPending: null });
       },
 
@@ -103,10 +96,7 @@ export const useAuthStore = create<AuthState>()(
           console.error('No pending OAuth data to complete');
           return;
         }
-
-        console.log('🔍 [AuthStore] Completing OAuth registration with user:', updatedUser);
         
-        // Merge updated user data with OAuth tokens
         const authData: AuthResponse = {
           access: oauthPending.access,
           refresh: oauthPending.refresh,
@@ -117,12 +107,10 @@ export const useAuthStore = create<AuthState>()(
       },
 
       setInviteToken: (token: string) => {
-        console.log('🔍 [AuthStore] Setting invite token:', token);
         set({ inviteToken: token });
       },
 
       clearInviteToken: () => {
-        console.log('🔍 [AuthStore] Clearing invite token');
         set({ inviteToken: null });
       },
 
@@ -136,9 +124,6 @@ export const useAuthStore = create<AuthState>()(
         } catch (error) {
           console.warn('Server logout failed:', error);
         }
-
-        // Clear ALL legacy localStorage items
-
         
         set({ 
           user: null, 
@@ -149,12 +134,6 @@ export const useAuthStore = create<AuthState>()(
           inviteToken: null 
         });
         window.location.href = '/';
-      },
-
-      traditionalAuth: async (username: string, password: string) => {
-        console.log('Traditional auth for:', username);
-        const authData = await traditionalLogin(username, password);
-        get().login(authData);
       },
 
       loadUserFromToken: async () => {
@@ -174,22 +153,72 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      updateProfile: async (data) => {
-        const { token } = get();
-        if (!token) {
-          throw new Error('No authentication token');
-        }
+        updateProfile: async (data) => {
+          const { token } = get();
+          if (!token) {
+            throw new Error('No authentication token');
+          }
 
-        try {
-          const updatedUser = await updateUserProfile(token, data);
-          const frontendUser = formatFrontendUser(updatedUser);
-          set({ user: frontendUser });
-          return frontendUser;
-        } catch (error) {
-          console.error('Failed to update profile:', error);
-          throw error;
-        }
-      },
+          try {
+            console.log("AuthStore: Updating profile with data:", data);
+            
+            let updatedUser: BackendUser;
+            
+            if (data instanceof FormData) {
+              // Handle FormData for file uploads
+              console.log("AuthStore: Using FormData");
+              
+              const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/profile/`, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  // Don't set Content-Type for FormData - browser will set it with boundary
+                },
+                body: data,
+              });
+
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error('AuthStore: Profile update failed:', errorText);
+                throw new Error(`Failed to update profile: ${response.status}`);
+              }
+
+              updatedUser = await response.json();
+            } else {
+              // Handle regular JSON data
+              console.log("AuthStore: Using JSON data");
+              
+              const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/profile/`, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data),
+              });
+
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error('AuthStore: Profile update failed:', errorText);
+                throw new Error(`Failed to update profile: ${response.status}`);
+              }
+
+              updatedUser = await response.json();
+            }
+            
+            console.log("AuthStore: Updated user from backend:", updatedUser);
+            console.log("AuthStore: Updated user role:", updatedUser.role);
+            
+            const frontendUser = formatFrontendUser(updatedUser);
+            console.log("AuthStore: Formatted frontend user:", frontendUser);
+            
+            set({ user: frontendUser });
+            return frontendUser;
+          } catch (error) {
+            console.error('AuthStore: Failed to update profile:', error);
+            throw error;
+          }
+        },
 
       checkProfileCompletion: () => {
         const { user } = get();
@@ -207,19 +236,6 @@ export const useAuthStore = create<AuthState>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
-          // Clear legacy localStorage items on rehydration
-          const legacyItems = [
-            'oauth_access_token',
-            'oauth_refresh_token', 
-            'oauth_user_data',
-            'pending_invite_token'
-          ];
-          
-          legacyItems.forEach(item => {
-            localStorage.removeItem(item);
-            sessionStorage.removeItem(item);
-          });
-          
           state.setLoading(false);
         }
       }
@@ -227,4 +243,5 @@ export const useAuthStore = create<AuthState>()(
   )
 );
 
-export const useAuth = () => useAuthStore();
+// Export the hook
+export const useAuth = () => authStore();

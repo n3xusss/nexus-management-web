@@ -1,19 +1,46 @@
-// app/token-verify/page.tsx - UPDATED
+// app/token-verify/page.tsx - UPDATED with message handling
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import BackgroundPattern from '../../components/BackgroundPattern';
 import GoogleAuthButton from '../../components/GoogleAuthButton';
-import { useAuth } from '../../lib/stores/authStore'; // NEW
+import { useAuth } from '../../lib/stores/authStore';
 
 export default function TokenVerifyPage() {
   const router = useRouter();
-  const { inviteToken, setInviteToken, clearInviteToken } = useAuth(); // NEW
+  const searchParams = useSearchParams();
+  const { inviteToken, setInviteToken, clearInviteToken } = useAuth();
   const [tokenInput, setTokenInput] = useState('');
+  const [message, setMessage] = useState<{
+    type: 'welcome' | 'retry' | 'error' | 'info';
+    text: string;
+  } | null>(null);
   const [error, setError] = useState('');
   
-  // No longer need local state for verifiedToken - use auth store directly
+  useEffect(() => {
+    // Check for messages in query params
+    const messageType = searchParams?.get('message');
+    const errorParam = searchParams?.get('error');
+    
+    if (messageType === 'welcome') {
+      setMessage({
+        type: 'welcome',
+        text: 'Welcome to NexusHub! Please enter your invite token to continue.'
+      });
+    } else if (messageType === 'retry' && errorParam) {
+      setMessage({
+        type: 'retry',
+        text: 'The previous token was invalid. Please enter a valid invite token.'
+      });
+      setError(errorParam);
+    } else {
+      setMessage({
+        type: 'info',
+        text: 'Enter your invite token to continue with registration.'
+      });
+    }
+  }, [searchParams]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,12 +59,22 @@ export default function TokenVerifyPage() {
     // Store the token in auth store
     setInviteToken(tokenInput);
     console.log('✅ Token stored in auth store:', tokenInput);
+    
+    // Clear any error messages
+    setMessage({
+      type: 'info',
+      text: 'Token saved! Click "Continue with Google" to proceed.'
+    });
   };
 
   const handleClearToken = () => {
     clearInviteToken();
     setTokenInput('');
     setError('');
+    setMessage({
+      type: 'info',
+      text: 'Enter your invite token to continue.'
+    });
   };
 
   return (
@@ -57,32 +94,44 @@ export default function TokenVerifyPage() {
           
           {/* Title */}
           <h1 className="text-3xl font-bold mb-6">
-            Enter Invite Token
+            {message?.type === 'welcome' ? 'Welcome!' : 'Enter Invite Token'}
           </h1>
+          
+          {/* Message Display */}
+          {message && (
+            <div className={`mb-6 p-4 rounded-lg border ${
+              message.type === 'welcome' 
+                ? 'bg-blue-500/20 border-blue-500/30' 
+                : message.type === 'retry'
+                ? 'bg-red-500/20 border-red-500/30'
+                : 'bg-gray-800/50 border-gray-700'
+            }`}>
+              <p className={`
+                ${message.type === 'welcome' ? 'text-blue-300' : 
+                  message.type === 'retry' ? 'text-red-300' : 
+                  'text-gray-300'}
+              `}>
+                {message.text}
+              </p>
+            </div>
+          )}
           
           {/* Description */}
           <p className="text-gray-300 mb-8">
             New users need a valid invite token to register. Contact your administrator to get one.
           </p>
           
-          {/* If token is stored in auth store, show Google button */}
+          {/* If token is stored, show Google button */}
           {inviteToken ? (
             <div className="space-y-6">
               <div className="p-4 bg-green-500/20 border border-green-500/30 rounded-lg">
-                <p className="text-green-300 font-medium mb-2">✓ Token Stored</p>
+                <p className="text-green-300 font-medium mb-2">✓ Token Ready</p>
                 <p className="text-green-400/80 text-sm break-all">
-                  Token: {inviteToken}
+                  Token: {inviteToken.substring(0, 4)}...{inviteToken.substring(inviteToken.length - 4)}
                 </p>
               </div>
               
               <div className="space-y-4">
-                <div className="text-left space-y-2">
-                  <p className="text-gray-300">
-                    Now click "Continue with Google" to create your account. 
-                    The invite token will be verified by the backend during registration.
-                  </p>
-                </div>
-                
                 <GoogleAuthButton 
                   inviteToken={inviteToken}
                   isNewUser={true}
@@ -108,7 +157,10 @@ export default function TokenVerifyPage() {
                 <input
                   type="text"
                   value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
+                  onChange={(e) => {
+                    setTokenInput(e.target.value);
+                    setError('');
+                  }}
                   placeholder="Enter your invite token"
                   className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7CFC9D] focus:border-transparent"
                   required
@@ -122,14 +174,17 @@ export default function TokenVerifyPage() {
                 disabled={!tokenInput.trim()}
                 className="w-full bg-[#7CFC9D] text-black font-semibold py-3 px-4 rounded-lg transition-all duration-300 hover:bg-[#6ee089] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Store Token & Continue
+                Save Token & Continue
               </button>
             </form>
           )}
           
           <div className="mt-6">
             <button
-              onClick={() => router.push('/')}
+              onClick={() => {
+                clearInviteToken();
+                router.push('/');
+              }}
               className="text-gray-400 hover:text-white text-sm transition-colors flex items-center justify-center"
             >
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -137,16 +192,6 @@ export default function TokenVerifyPage() {
               </svg>
               Back to Login
             </button>
-          </div>
-          
-          {/* Note */}
-          <div className="mt-8 p-4 bg-gray-800/50 rounded-lg border border-gray-700">
-            <p className="text-sm text-gray-400">
-              <strong>Note:</strong> 
-              <br />• If you already have an account, use the Google button on the login page.
-              <br />• The token will be verified by the backend during registration.
-              <br />• If token is invalid, you'll get an error and can try again.
-            </p>
           </div>
         </div>
       </div>

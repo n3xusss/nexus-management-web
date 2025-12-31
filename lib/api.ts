@@ -49,7 +49,8 @@ export interface AuthResponse {
 
 export interface FrontendUser {
   id: string;
-  name: string;
+  name: string;  // This should be the display name (username or full name)
+  username: string; // ADD THIS - The actual username for login
   email: string;
   role: 'admin' | 'manager' | 'member';
   backendRole: 'mod' | 'manager' | 'member';
@@ -63,8 +64,17 @@ export interface FrontendUser {
     name: string;
     description: string;
   };
+  tags?: Array<{
+    id: number;
+    tag_name: string;
+    color: string;
+  }>;
+  school?: {
+    id: number;
+    name: string;
+    description: string;
+  };
 }
-
 export interface DashboardStats {
   totalProjects?: number;
   activeProjects?: number;
@@ -150,9 +160,27 @@ const roleMap: Record<'mod' | 'manager' | 'member', 'admin' | 'manager' | 'membe
  * Formats backend user object to frontend user structure
  * Handles missing first/last names by falling back to username
  */
-export const formatFrontendUser = (backendUser: BackendUser): FrontendUser => {
-  const backendRole = backendUser.role?.role_name || 'member';
 
+
+/**
+ * Formats backend user object to frontend user structure
+ * Handles missing first/last names by falling back to username
+ */
+export const formatFrontendUser = (backendUser: BackendUser): FrontendUser => {
+  console.log("Formatting backend user:", backendUser);
+  
+  // Get role - handle both direct string and object
+  let backendRole: 'mod' | 'manager' | 'member' = 'member';
+  
+  if (typeof backendUser.role === 'string') {
+    backendRole = backendUser.role as 'mod' | 'manager' | 'member';
+  } else if (backendUser.role && backendUser.role.role_name) {
+    backendRole = backendUser.role.role_name;
+  }
+  
+  const frontendRole = roleMap[backendRole];
+
+  // Generate ID from backend ID if available
   const generateId = () => {
     if (backendUser.id) return backendUser.id.toString();
     if (backendUser.pk) return backendUser.pk.toString();
@@ -161,30 +189,50 @@ export const formatFrontendUser = (backendUser: BackendUser): FrontendUser => {
     return 'unknown-user';
   };
 
+  // Get names - handle null/undefined
   const firstName = backendUser.first_name || '';
   const lastName = backendUser.last_name || '';
+  
+  // FIX: Use username as primary display name, fall back to email if needed
   let displayName = backendUser.username || backendUser.email?.split('@')[0] || 'User';
-  if (firstName || lastName) {
+  
+  // Only use firstName + lastName if username is not available AND names exist
+  if ((!backendUser.username || displayName === 'User') && (firstName || lastName)) {
     displayName = `${firstName} ${lastName}`.trim();
   }
 
-  return {
+  // Extract phone number - handle both phone_number and phoneNumber
+  const phoneNumber = backendUser.phone_number || backendUser.phoneNumber || '';
+
+  // Extract academic level
+  const academicLevel = backendUser.academic_level || backendUser.academicLevel || '';
+
+  const formattedUser: FrontendUser = {
     id: generateId(),
     name: displayName,
     email: backendUser.email,
-    role: roleMap[backendRole],
+    role: frontendRole,
     backendRole,
     firstName,
     lastName,
     image: backendUser.image,
-    phoneNumber: backendUser.phone_number,
-    academicLevel: backendUser.academic_level,
+    phoneNumber,
+    academicLevel,
     department: backendUser.department ? {
       id: backendUser.department.id,
       name: backendUser.department.dept_name,
       description: backendUser.department.dept_description
     } : undefined,
+    tags: backendUser.tags || [],
+    school: backendUser.school ? {
+      id: backendUser.school.id,
+      name: backendUser.school.school_name,
+      description: backendUser.school.school_description
+    } : undefined,
   };
+
+  console.log("Formatted frontend user:", formattedUser);
+  return formattedUser;
 };
 
 // ====================
@@ -195,6 +243,9 @@ export const formatFrontendUser = (backendUser: BackendUser): FrontendUser => {
  * Exchange Google OAuth code for backend tokens
  * Includes invite_token as query param for new user onboarding
  */
+// Update lib/api.ts - exchangeGoogleCode function
+// Update lib/api.ts - FIXED exchangeGoogleCode function
+// Update lib/api.ts - FINAL VERSION with proper invalid token handling
 export const exchangeGoogleCode = async (
   code: string,
   redirectUri: string,
@@ -225,34 +276,62 @@ export const exchangeGoogleCode = async (
     const responseText = await response.text();
 
     if (!response.ok) {
-      console.error('Google auth failed:', responseText);
+      // Don't log to console for expected invite token errors
+      if (!responseText.includes('DATA NOT FOUND') && !responseText.includes('invite_token')) {
+        console.error('Google auth failed:', responseText);
+      }
       
       // Try to parse JSON error
       try {
         const errorData = JSON.parse(responseText);
+        
+        // Check for invite_token error specifically
+        if (errorData.invite_token && Array.isArray(errorData.invite_token)) {
+          const inviteError = errorData.invite_token[0];
+          if (inviteError.includes('DATA NOT FOUND')) {
+            throw new Error('INVITE_TOKEN_NOT_FOUND');
+          } else {
+            throw new Error(`INVITE_TOKEN_INVALID: ${inviteError}`);
+          }
+        }
+        
+        // Check for non_field_errors (which might contain token errors)
+        if (errorData.non_field_errors && Array.isArray(errorData.non_field_errors)) {
+          const errorMsg = errorData.non_field_errors[0];
+          if (errorMsg.includes('Failed to exchange code') && inviteToken) {
+            // If we have an invite token and get this error, it's likely invalid
+            throw new Error('INVITE_TOKEN_INVALID');
+          }
+          throw new Error(errorMsg);
+        }
+        
         throw new Error(
-          errorData.non_field_errors?.[0] ||
           errorData.detail ||
           errorData.error ||
           `Authentication failed: ${response.status}`
         );
       } catch (jsonError) {
-        // If it's HTML (Django error page), give a user-friendly message
-        if (responseText.includes('Failed to resolve') || 
-            responseText.includes('NameResolutionError') ||
-            responseText.includes('www.googleapis.com')) {
-          throw new Error(
-            'Backend cannot connect to Google services. ' +
-            'Please check backend network connectivity or try again later.'
-          );
+        // If we can't parse JSON, check for specific strings
+        if (responseText.includes('DATA NOT FOUND')) {
+          throw new Error('INVITE_TOKEN_NOT_FOUND');
         }
+        
+        // If we have an invite token and get a 400, assume it's invalid
+        if (inviteToken && response.status === 400) {
+          throw new Error('INVITE_TOKEN_INVALID');
+        }
+        
         throw new Error(`Authentication failed: ${response.status}`);
       }
     }
 
     return JSON.parse(responseText);
   } catch (error) {
-    console.error('Google auth error:', error);
+    // Don't log expected invite token errors to console
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (!errorMessage.includes('INVITE_TOKEN_')) {
+      console.error('Google auth error:', error);
+    }
     throw error;
   }
 };
