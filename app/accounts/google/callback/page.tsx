@@ -1,6 +1,7 @@
+// app/accounts/google/callback/page.tsx - FIXED
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import BackgroundPattern from '../../../../components/BackgroundPattern';
 import { useAuth } from '../../../../lib/stores/authStore';
@@ -9,20 +10,26 @@ import { exchangeGoogleCode, getUserProfile } from '../../../../lib/api';
 export default function GoogleCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, setOAuthPending, inviteToken, clearInviteToken } = useAuth(); // Added inviteToken and clearInviteToken
+  const { login, setOAuthPending, inviteToken, clearInviteToken } = useAuth();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [error, setError] = useState<string>('');
+  const hasProcessed = useRef(false); // Prevent double processing
 
   useEffect(() => {
     const handleCallback = async () => {
+      // Prevent multiple executions
+      if (hasProcessed.current) return;
+      hasProcessed.current = true;
+
       try {
         const code = searchParams?.get('code');
         const errorParam = searchParams?.get('error');
+        const stateParam = searchParams?.get('state');
         
         console.log('🔍 OAuth Callback received:', { 
           code: !!code, 
           errorParam,
-          state: searchParams?.get('state'),
+          state: stateParam,
           hasInviteTokenInStore: !!inviteToken
         });
 
@@ -34,33 +41,50 @@ export default function GoogleCallback() {
           throw new Error('No authorization code received from Google');
         }
 
-        // Get invite token from auth store (not localStorage)
-        const pendingToken = inviteToken;
+        // Try to get invite token from state parameter first
+        let inviteTokenFromState: string | null = null;
+        if (stateParam) {
+          try {
+            const stateData = JSON.parse(decodeURIComponent(stateParam));
+            inviteTokenFromState = stateData.inviteToken || null;
+            console.log('🔍 Found invite token in state:', inviteTokenFromState);
+          } catch (e) {
+            console.log('🔍 No valid invite token in state');
+          }
+        }
+
+        // Use invite token in this order: state param > auth store > undefined
+        const pendingToken = inviteTokenFromState || inviteToken || undefined;
         
         // Clean up any legacy localStorage items
         localStorage.removeItem('pending_invite_token');
         sessionStorage.removeItem('pending_invite_token');
         
         const redirectUri = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_REDIRECT_URI || 
-                           `${window.location.origin}/callback`;
+                           `${window.location.origin}/accounts/google/callback`;
         
         console.log('🔍 Processing callback...', {
           hasInviteToken: !!pendingToken,
           redirectUri,
-          tokenFromStore: pendingToken
+          tokenSource: inviteTokenFromState ? 'state' : inviteToken ? 'store' : 'none',
+          token: pendingToken?.substring(0, 8) + '...' // Log first 8 chars only
         });
 
-        // Exchange code for tokens using invite token from auth store
-        const authData = await exchangeGoogleCode(code, redirectUri, pendingToken || undefined);
+        // Exchange code for tokens
+        const authData = await exchangeGoogleCode(code, redirectUri, pendingToken);
         
         // Clear invite token from auth store since we've used it
-        if (pendingToken) {
+        if (inviteToken && !inviteTokenFromState) {
           clearInviteToken();
         }
         
         const isNewUser = !!pendingToken;
         
-        console.log('🔍 User type check:', { isNewUser, pendingToken });
+        console.log('🔍 User type check:', { 
+          isNewUser, 
+          hasPendingToken: !!pendingToken,
+          userEmail: authData.user?.email 
+        });
 
         if (isNewUser) {
           // NEW USER FLOW: Store OAuth data in auth store for registration
@@ -98,12 +122,9 @@ export default function GoogleCallback() {
 
           // Check if user has completed registration
           const hasRegistrationData = 
-            authData.user.phone_number || 
             authData.user.academic_level || 
             (authData.user.tags && authData.user.tags.length > 0) ||
-            authData.user.school ||
-            authData.user.first_name ||
-            authData.user.last_name;
+            authData.user.school 
 
           if (!hasRegistrationData) {
             console.log('🔄 Existing user needs to complete profile');
@@ -141,10 +162,11 @@ export default function GoogleCallback() {
         console.error('❌ OAuth callback error:', err);
         setError(err.message || 'Authentication failed');
         setStatus('error');
+        hasProcessed.current = false; // Allow retry on error
       }
     };
 
-    if (searchParams) {
+    if (searchParams && !hasProcessed.current) {
       handleCallback();
     }
   }, [searchParams, login, router, setOAuthPending, inviteToken, clearInviteToken]);

@@ -13,7 +13,7 @@ export default function GoogleAuthButton({
   isNewUser = false,
   onClick 
 }: GoogleAuthButtonProps) {
-  const { setInviteToken } = useAuth(); // NEW
+  const { setInviteToken } = useAuth();
   
   const handleGoogleAuth = () => {
     if (onClick) {
@@ -35,7 +35,11 @@ export default function GoogleAuthButton({
       console.log('🔍 Stored invite token in auth store:', inviteToken);
     }
 
-    // Build Google OAuth URL
+    // Build Google OAuth URL with state parameter containing invite token
+    const state = inviteToken ? 
+      JSON.stringify({ inviteToken, timestamp: Date.now() }) : 
+      JSON.stringify({ timestamp: Date.now() });
+
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
@@ -43,6 +47,7 @@ export default function GoogleAuthButton({
       scope: 'openid email profile',
       access_type: 'offline',
       prompt: 'select_account',
+      state: encodeURIComponent(state),
     });
 
     const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
@@ -50,7 +55,8 @@ export default function GoogleAuthButton({
     console.log('🔍 Redirecting to Google OAuth:', {
       hasInviteToken: !!inviteToken,
       redirectUri,
-      isNewUser
+      isNewUser,
+      state
     });
     
     window.location.href = googleAuthUrl;
