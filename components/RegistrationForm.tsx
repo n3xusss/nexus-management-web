@@ -1,12 +1,9 @@
-// app/components/RegistrationForm.tsx - BEAUTIFUL REDESIGN
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../lib/stores/authStore';
-
-type ApiTag = { id: number; tagname?: string; tag_name?: string; color: string };
-type ApiSchool = { id: number; schoolname?: string; school_name?: string };
+import { getTags, getSchools } from '../lib/api';
 
 interface Tag {
   id: number;
@@ -17,27 +14,36 @@ interface Tag {
 interface School {
   id: number;
   school_name: string;
+  school_description?: string;
+}
+
+interface RegistrationData {
+  first_name: string;
+  last_name: string;
+  phone_number?: string;
+  academic_level?: string;
+  tag_ids?: number[];
+  school_id?: number;
 }
 
 const LS_KEYS = {
   access: 'oauth_access_token',
   refresh: 'oauth_refresh_token',
   user: 'oauth_user_data',
-  invite: 'invite_token',
+  invite: 'pending_invite_token',
 } as const;
 
 export default function RegistrationForm() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { updateProfile, login, user, token, oauthPending, completeOAuthRegistration, clearOAuthPending } = useAuth(); // NEW
 
-  const [formData, setFormData] = useState({
-    invite_token: '',
+  const [formData, setFormData] = useState<RegistrationData>({
     first_name: '',
     last_name: '',
     phone_number: '',
     academic_level: '',
-    tags: [] as number[],
-    school: '' as string | number,
+    tag_ids: [],
+    school_id: undefined,
   });
 
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
@@ -47,78 +53,123 @@ export default function RegistrationForm() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'personal' | 'academic'>('personal');
 
+  // Check if this is an OAuth registration
+  const isOAuthRegistration = () => {
+    return !!oauthPending;
+  };
+
   useEffect(() => {
     console.log('🔍 RegistrationForm - Initializing...');
+    
+const loadInitialData = async () => {
+  try {
+    // Check 1: Already logged in user updating profile
+    if (user && token && !oauthPending) {
+      // If already have complete profile, redirect
+      if (user.firstName && user.lastName) {
+        console.log('✅ User already has complete profile, redirecting to /global');
+        router.push('/global');
+        return;
+      }
+      
+      // Pre-fill with existing user data
+      setFormData((prev) => ({
+        ...prev,
+        first_name: user.firstName || prev.first_name || '',
+        last_name: user.lastName || prev.last_name || '',
+        phone_number: user.phoneNumber || prev.phone_number || '',
+        academic_level: user.academicLevel || prev.academic_level || '',
+      }));
+      
+      // For logged-in user, use their token
+      const tokenToUse = token;
+      
+      // Load tags and schools with the logged-in user's token
+      const [tags, schools] = await Promise.all([
+        getTags(tokenToUse), 
+        getSchools(tokenToUse)
+      ]);
+      
+      const normalizedTags: Tag[] = tags.map((t: any) => ({
+        id: t.id,
+        tag_name: t.tag_name ?? t.tagname ?? '',
+        color: t.color,
+      })).filter((t: Tag) => !!t.tag_name);
 
-    const accessToken = localStorage.getItem(LS_KEYS.access);
-    const refreshToken = localStorage.getItem(LS_KEYS.refresh);
-    const userData = localStorage.getItem(LS_KEYS.user);
-    const inviteToken = localStorage.getItem(LS_KEYS.invite);
+      const normalizedSchools: School[] = schools.map((s: any) => ({
+        id: s.id,
+        school_name: s.school_name ?? s.schoolname ?? '',
+        school_description: s.school_description ?? '',
+      })).filter((s: School) => !!s.school_name);
 
-    console.log('🔍 RegistrationForm - localStorage data:', {
-      accessToken: !!accessToken,
-      refreshToken: !!refreshToken,
-      userData: !!userData,
-      inviteToken: !!inviteToken,
-    });
+      setAvailableTags(normalizedTags);
+      setAvailableSchools(normalizedSchools);
+    }
+    // Check 2: OAuth registration
+    else if (oauthPending) {
+      console.log('🔍 Loading OAuth registration data:', oauthPending.user);
+      
+      const emailName = oauthPending.user?.email?.split('@')?.[0] || '';
+      setFormData((prev) => ({
+        ...prev,
+        first_name: oauthPending.user?.first_name || prev.first_name || emailName,
+        last_name: oauthPending.user?.last_name || prev.last_name || '',
+      }));
+      
+      // For OAuth registration, use the OAuth access token
+      const tokenToUse = oauthPending.access;
+      
+      // Load tags and schools with OAuth token
+      const [tags, schools] = await Promise.all([
+        getTags(tokenToUse), 
+        getSchools(tokenToUse)
+      ]);
+      
+      const normalizedTags: Tag[] = tags.map((t: any) => ({
+        id: t.id,
+        tag_name: t.tag_name ?? t.tagname ?? '',
+        color: t.color,
+      })).filter((t: Tag) => !!t.tag_name);
 
-    if (!accessToken || !inviteToken) {
-      console.error('❌ Missing required registration data');
-      router.replace('/');
+      const normalizedSchools: School[] = schools.map((s: any) => ({
+        id: s.id,
+        school_name: s.school_name ?? s.schoolname ?? '',
+        school_description: s.school_description ?? '',
+      })).filter((s: School) => !!s.school_name);
+
+      setAvailableTags(normalizedTags);
+      setAvailableSchools(normalizedSchools);
+    }
+    // Check 3: No user data - should redirect
+    else {
+      console.log('❌ No user data found, redirecting to home');
+      router.push('/');
       return;
     }
 
-    setFormData((prev) => ({ ...prev, invite_token: inviteToken }));
+  } catch (err) {
+    console.error('Failed to load form data:', err);
+    setError('Failed to load registration data. Please refresh the page.');
+  } finally {
+    setLoading(false);
+  }
+};
 
-    if (userData) {
-      try {
-        const user = JSON.parse(userData);
-        const emailName = user?.email?.split('@')?.[0] || '';
-        setFormData((prev) => ({
-          ...prev,
-          first_name: user?.first_name || user?.firstname || prev.first_name || emailName,
-          last_name: user?.last_name || user?.lastname || prev.last_name || '',
-        }));
-      } catch (err) {
-        console.error('Failed to parse user data:', err);
-      }
+    loadInitialData();
+  }, [user, token, oauthPending, router]);
+
+  const validateForm = (): string | null => {
+    if (!formData.first_name.trim() || !formData.last_name.trim()) {
+      return 'First name and last name are required';
     }
+    
+    if (formData.phone_number && !/^0[567]\d{8}$/.test(formData.phone_number)) {
+      return 'Phone number must be a valid Algerian number (05, 06, or 07 followed by 8 digits)';
+    }
+    
+    return null;
+  };
 
-    const loadFormData = async () => {
-      try {
-        const base = process.env.NEXT_PUBLIC_API_BASE_URL;
-        const [tagsRes, schoolsRes] = await Promise.all([
-          fetch(`${base}/tags/`),
-          fetch(`${base}/schools/`),
-        ]);
-
-        if (tagsRes.ok) {
-          const tagsJson: ApiTag[] = await tagsRes.json();
-          const normalized: Tag[] = tagsJson.map((t) => ({
-            id: t.id,
-            tag_name: t.tag_name ?? t.tagname ?? '',
-            color: t.color,
-          })).filter((t) => !!t.tag_name);
-          setAvailableTags(normalized);
-        }
-
-        if (schoolsRes.ok) {
-          const schoolsJson: ApiSchool[] = await schoolsRes.json();
-          const normalized: School[] = schoolsJson.map((s) => ({
-            id: s.id,
-            school_name: s.school_name ?? s.schoolname ?? '',
-          })).filter((s) => !!s.school_name);
-          setAvailableSchools(normalized);
-        }
-      } catch (err) {
-        console.error('Failed to load form data:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadFormData();
-  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,70 +177,119 @@ export default function RegistrationForm() {
     setError('');
 
     try {
-      const base = process.env.NEXT_PUBLIC_API_BASE_URL;
-      const accessToken = localStorage.getItem(LS_KEYS.access);
-      const refreshToken = localStorage.getItem(LS_KEYS.refresh) || '';
-      const userData = localStorage.getItem(LS_KEYS.user);
-
-      if (!accessToken) {
-        throw new Error('No authentication token found. Please restart the registration process.');
+      // Validate form
+      const validationError = validateForm();
+      if (validationError) {
+        throw new Error(validationError);
       }
 
-      const payload: Record<string, any> = {
-        invite_token: formData.invite_token,
-        first_name: formData.first_name,
-        last_name: formData.last_name,
-        tags: formData.tags,
-      };
+      console.log('📤 Submitting profile data:', formData);
 
-      if (formData.phone_number) payload.phone_number = formData.phone_number;
-      if (formData.academic_level) payload.academic_level = formData.academic_level;
-      if (formData.school) payload.school = formData.school;
-
-      console.log('📤 Sending registration data:', payload);
-
-      const response = await fetch(`${base}/complete-registration/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-      console.log('📥 Registration response:', data);
-
-      if (!response.ok) {
-        throw new Error(data.error || data.detail || 'Registration failed');
-      }
-
-      console.log('✅ Registration successful');
-
-      localStorage.removeItem(LS_KEYS.access);
-      localStorage.removeItem(LS_KEYS.refresh);
-      localStorage.removeItem(LS_KEYS.user);
-      localStorage.removeItem(LS_KEYS.invite);
-
-      const fallbackUser = (() => {
-        try {
-          return userData ? JSON.parse(userData) : {};
-        } catch {
-          return {};
+      if (oauthPending) {
+        // OAuth registration flow
+        const base = process.env.NEXT_PUBLIC_API_BASE_URL;
+        
+        // Prepare request data
+        const requestData: any = {
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+        };
+        
+        if (formData.phone_number) {
+          requestData.phone_number = formData.phone_number;
         }
-      })();
+        
+        if (formData.academic_level) {
+          requestData.academic_level = formData.academic_level;
+        }
+        
+        if (formData.tag_ids && formData.tag_ids.length > 0) {
+          requestData.tag_ids = formData.tag_ids;
+        }
+        
+        if (formData.school_id) {
+          requestData.school_id = formData.school_id;
+        }
 
-      const authResponse = {
-        access: accessToken,
-        refresh: refreshToken,
-        user: data.user || fallbackUser,
-      };
+        console.log('📤 Updating profile with OAuth token:', oauthPending.access);
+        
+        const response = await fetch(`${base}/profile/`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${oauthPending.access}`,
+          },
+          body: JSON.stringify(requestData),
+        });
 
-      login(authResponse);
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Backend error response:', errorText);
+          try {
+            const errorData = JSON.parse(errorText);
+            throw new Error(errorData.detail || errorData.error || errorData.message || 'Profile update failed');
+          } catch {
+            throw new Error(`Profile update failed: ${response.status} - ${errorText.substring(0, 100)}`);
+          }
+        }
+
+        const updatedUser = await response.json();
+        console.log('✅ Profile update successful:', updatedUser);
+
+        // Clear legacy storage
+        localStorage.removeItem('oauth_access_token');
+        localStorage.removeItem('oauth_refresh_token');
+        localStorage.removeItem('oauth_user_data');
+        localStorage.removeItem('pending_invite_token');
+        
+        // Complete registration in auth store
+        completeOAuthRegistration(updatedUser);
+        
+        // Clear OAuth pending data
+        clearOAuthPending();
+        
+        // Redirect will happen via CompleteRegistrationPage's useEffect
+        
+      } else {
+        // Logged-in user updating profile
+        const updateData: any = {
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+        };
+        
+        if (formData.phone_number) {
+          updateData.phone_number = formData.phone_number;
+        }
+        
+        if (formData.academic_level) {
+          updateData.academic_level = formData.academic_level;
+        }
+        
+        if (formData.tag_ids && formData.tag_ids.length > 0) {
+          updateData.tag_ids = formData.tag_ids;
+        }
+        
+        if (formData.school_id) {
+          updateData.school_id = formData.school_id;
+        }
+
+        console.log('📤 Sending update data for logged-in user:', updateData);
+        
+        // Update profile via auth store
+        await updateProfile(updateData);
+      }
+
     } catch (err: any) {
       console.error('❌ Registration error:', err);
-      setError(err.message || 'Network error');
-    } finally {
+      
+      // Error handling remains the same
+      if (err.message.includes('phone number')) {
+        setError('Invalid phone number format. Please use 05, 06, or 07 followed by 8 digits.');
+      } else if (err.message.includes('required')) {
+        setError('Please fill in all required fields (First Name and Last Name).');
+      } else {
+        setError(err.message || 'Failed to update profile. Please check your information and try again.');
+      }
       setSubmitting(false);
     }
   };
@@ -204,13 +304,16 @@ export default function RegistrationForm() {
               <div className="h-8 w-8 bg-[#7CFC9D] rounded-full animate-ping"></div>
             </div>
           </div>
-          <p className="text-white mt-6 text-lg font-medium">Loading your registration form...</p>
-          <p className="text-gray-400 mt-2 text-sm">Getting everything ready for you</p>
+          <p className="text-white mt-6 text-lg font-medium">
+            Loading your registration form...
+          </p>
+          <p className="text-gray-400 mt-2 text-sm">
+            Getting everything ready for you
+          </p>
         </div>
       </div>
     );
   }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1a1a1a] to-[#2a2a2a] py-8 px-4">
       {/* Animated Background Elements */}
@@ -228,45 +331,50 @@ export default function RegistrationForm() {
             </svg>
           </div>
           <h1 className="text-4xl font-bold text-white mb-3 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-            Complete Your Profile
+            {isOAuthRegistration()? 'Complete Your Profile' : 'Update Your Profile'}
           </h1>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            Just a few more details to personalize your NexusHub experience
+            {isOAuthRegistration()
+              ? 'Just a few more details to personalize your NexusHub experience'
+              : 'Update your profile information to enhance your experience'}
           </p>
         </div>
 
-        {/* Progress Steps */}
-        <div className="flex justify-center mb-10">
-          <div className="flex items-center space-x-8">
-            <div className="flex items-center">
-              <div className="w-10 h-10 rounded-full bg-[#7CFC9D] flex items-center justify-center">
-                <span className="text-black font-bold">1</span>
+        {/* Progress Steps for OAuth users */}
+        {isOAuthRegistration() && (
+          <div className="flex justify-center mb-10">
+            <div className="flex items-center space-x-8">
+              <div className="flex items-center">
+                <div className="w-10 h-10 rounded-full bg-[#7CFC9D] flex items-center justify-center">
+                  <span className="text-black font-bold">1</span>
+                </div>
+                <div className="ml-3">
+                  <p className="text-white font-medium">Account Created</p>
+                  <p className="text-gray-500 text-sm">Google authentication</p>
+                </div>
               </div>
-              <div className="ml-3">
-                <p className="text-white font-medium">Account Created</p>
-                <p className="text-gray-500 text-sm">Google authentication</p>
-              </div>
-            </div>
-            
-            <div className="h-0.5 w-16 bg-gray-700"></div>
-            
-            <div className="flex items-center">
-              <div className="w-10 h-10 rounded-full bg-[#7CFC9D] flex items-center justify-center animate-pulse">
-                <span className="text-black font-bold">2</span>
-              </div>
-              <div className="ml-3">
-                <p className="text-white font-medium">Profile Setup</p>
-                <p className="text-gray-500 text-sm">Complete your details</p>
+              
+              <div className="h-0.5 w-16 bg-gray-700"></div>
+              
+              <div className="flex items-center">
+                <div className="w-10 h-10 rounded-full bg-[#7CFC9D] flex items-center justify-center animate-pulse">
+                  <span className="text-black font-bold">2</span>
+                </div>
+                <div className="ml-3">
+                  <p className="text-white font-medium">Profile Setup</p>
+                  <p className="text-gray-500 text-sm">Complete your details</p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Main Form Container */}
         <div className="bg-[#1e1e1e]/80 backdrop-blur-sm rounded-2xl border border-gray-800 shadow-2xl overflow-hidden">
           {/* Form Tabs */}
           <div className="flex border-b border-gray-800">
             <button
+              type="button"
               onClick={() => setActiveTab('personal')}
               className={`flex-1 py-5 px-6 text-center font-medium transition-all duration-300 ${activeTab === 'personal' 
                 ? 'text-white bg-gradient-to-r from-[#7CFC9D]/10 to-transparent border-b-2 border-[#7CFC9D]' 
@@ -281,6 +389,7 @@ export default function RegistrationForm() {
               </div>
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab('academic')}
               className={`flex-1 py-5 px-6 text-center font-medium transition-all duration-300 ${activeTab === 'academic' 
                 ? 'text-white bg-gradient-to-r from-[#7CFC9D]/10 to-transparent border-b-2 border-[#7CFC9D]' 
@@ -298,7 +407,7 @@ export default function RegistrationForm() {
 
           {/* Error Display */}
           {error && (
-            <div className="mx-6 mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start space-x-3 animate-shake">
+            <div className="mx-6 mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start space-x-3">
               <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0 mt-0.5">
                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -314,7 +423,7 @@ export default function RegistrationForm() {
           <form onSubmit={handleSubmit} className="p-8">
             {/* Personal Information Tab */}
             {activeTab === 'personal' && (
-              <div className="space-y-8 animate-fadeIn">
+              <div className="space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-semibold text-gray-300 mb-3 flex items-center">
@@ -330,6 +439,7 @@ export default function RegistrationForm() {
                       onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
                       className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#7CFC9D] focus:border-transparent transition-all duration-300"
                       placeholder="Enter your first name"
+                      maxLength={50}
                     />
                   </div>
 
@@ -347,32 +457,9 @@ export default function RegistrationForm() {
                       onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
                       className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#7CFC9D] focus:border-transparent transition-all duration-300"
                       placeholder="Enter your last name"
+                      maxLength={50}
                     />
                   </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-300 mb-3 flex items-center">
-                    <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center mr-3">
-                      <span className="text-gray-400">🔐</span>
-                    </div>
-                    Invite Token
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      required
-                      value={formData.invite_token}
-                      readOnly
-                      className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-gray-300 font-mono focus:outline-none cursor-not-allowed"
-                    />
-                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                      <span className="px-3 py-1 bg-green-500/20 text-green-400 text-xs font-semibold rounded-full">
-                        Verified
-                      </span>
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2 ml-11">This token was verified during Google authentication</p>
                 </div>
 
                 <div>
@@ -381,14 +468,20 @@ export default function RegistrationForm() {
                       <span className="text-gray-400">📱</span>
                     </div>
                     Phone Number
+                    <span className="text-xs text-gray-500 ml-2">(Algerian format: 05XXXXXXXX)</span>
                   </label>
                   <input
                     type="tel"
                     value={formData.phone_number}
                     onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
                     className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#7CFC9D] focus:border-transparent transition-all duration-300"
-                    placeholder="+1 (555) 123-4567"
+                    placeholder="05XXXXXXXX"
+                    pattern="^0[567]\d{8}$"
+                    maxLength={10}
                   />
+                  <p className="text-xs text-gray-500 mt-2 ml-11">
+                    Must start with 05, 06, or 07 followed by 8 digits
+                  </p>
                 </div>
 
                 <div className="pt-4">
@@ -408,7 +501,7 @@ export default function RegistrationForm() {
 
             {/* Academic Details Tab */}
             {activeTab === 'academic' && (
-              <div className="space-y-8 animate-fadeIn">
+              <div className="space-y-8">
                 <div>
                   <label className="block text-sm font-semibold text-gray-300 mb-3 flex items-center">
                     <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center mr-3">
@@ -440,8 +533,14 @@ export default function RegistrationForm() {
                     School
                   </label>
                   <select
-                    value={formData.school}
-                    onChange={(e) => setFormData({ ...formData, school: e.target.value })}
+                    value={formData.school_id || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setFormData({ 
+                        ...formData, 
+                        school_id: value ? parseInt(value) : undefined 
+                      });
+                    }}
                     className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-[#7CFC9D] focus:border-transparent appearance-none transition-all duration-300"
                   >
                     <option value="">Select your school</option>
@@ -451,15 +550,9 @@ export default function RegistrationForm() {
                       </option>
                     ))}
                   </select>
-                  <div className="mt-4">
-                    <label className="block text-sm font-semibold text-gray-300 mb-3">Or enter new school</label>
-                    <input
-                      type="text"
-                      placeholder="Type new school name here"
-                      onChange={(e) => setFormData({ ...formData, school: e.target.value })}
-                      className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#7CFC9D] focus:border-transparent transition-all duration-300"
-                    />
-                  </div>
+                  <p className="text-xs text-gray-500 mt-2 ml-11">
+                    Please select your school from the list
+                  </p>
                 </div>
 
                 <div>
@@ -468,28 +561,35 @@ export default function RegistrationForm() {
                       <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center mr-3">
                         <span className="text-gray-400">🏷️</span>
                       </div>
-                      Select Your Interests
+                      Select Your Interests (Tags)
                     </label>
                     <span className="text-xs text-gray-500">
-                      {formData.tags.length} of {availableTags.length} selected
+                      {formData.tag_ids?.length || 0} of {availableTags.length} selected
                     </span>
                   </div>
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {availableTags.map((tag) => {
-                      const isSelected = formData.tags.includes(tag.id);
+                      const isSelected = formData.tag_ids?.includes(tag.id) || false;
                       return (
                         <button
                           key={tag.id}
                           type="button"
                           onClick={() => {
+                            const currentTags = formData.tag_ids || [];
                             if (isSelected) {
-                              setFormData({ ...formData, tags: formData.tags.filter((id) => id !== tag.id) });
+                              setFormData({ 
+                                ...formData, 
+                                tag_ids: currentTags.filter((id) => id !== tag.id) 
+                              });
                             } else {
-                              setFormData({ ...formData, tags: [...formData.tags, tag.id] });
+                              setFormData({ 
+                                ...formData, 
+                                tag_ids: [...currentTags, tag.id] 
+                              });
                             }
                           }}
-                          className={`p-4 rounded-xl border-2 transition-all duration-300 transform hover:scale-[1.02] flex items-center justify-between ${
+                          className={`p-4 rounded-xl border-2 transition-all duration-300 flex items-center justify-between ${
                             isSelected
                               ? 'border-[#7CFC9D] bg-[#7CFC9D]/10'
                               : 'border-gray-700 bg-gray-900 hover:border-gray-600'
@@ -520,7 +620,7 @@ export default function RegistrationForm() {
                     })}
                   </div>
                   
-                  {formData.tags.length === 0 && (
+                  {(formData.tag_ids?.length || 0) === 0 && (
                     <div className="mt-6 p-4 bg-gray-800/50 rounded-xl border border-dashed border-gray-700 text-center">
                       <p className="text-gray-400">No interests selected yet</p>
                       <p className="text-gray-500 text-sm mt-1">Select tags that match your skills and interests</p>
@@ -552,7 +652,7 @@ export default function RegistrationForm() {
                       </>
                     ) : (
                       <>
-                        Complete Registration
+                        {isOAuthRegistration() ? 'Complete Registration' : 'Update Profile'}
                         <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
@@ -575,57 +675,6 @@ export default function RegistrationForm() {
           </p>
         </div>
       </div>
-
-      {/* Add custom animations to global CSS */}
-      <style jsx global>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
-          20%, 40%, 60%, 80% { transform: translateX(5px); }
-        }
-        
-        .animate-fadeIn {
-          animation: fadeIn 0.5s ease-out;
-        }
-        
-        .animate-shake {
-          animation: shake 0.5s ease-in-out;
-        }
-        
-        /* Custom scrollbar */
-        ::-webkit-scrollbar {
-          width: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-          background: #1e1e1e;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-          background: #7CFC9D;
-          border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-          background: #6ee089;
-        }
-        
-        /* Selection color */
-        ::selection {
-          background: #7CFC9D;
-          color: black;
-        }
-        
-        /* Smooth transitions */
-        * {
-          transition: background-color 0.3s ease, border-color 0.3s ease;
-        }
-      `}</style>
     </div>
   );
 }

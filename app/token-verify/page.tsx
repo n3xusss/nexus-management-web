@@ -1,62 +1,80 @@
-// app/token-verify/page.tsx - ONLY FOR NEW USERS
+// app/token-verify/page.tsx - UPDATED with message handling
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import BackgroundPattern from '../../components/BackgroundPattern';
+import GoogleAuthButton from '../../components/GoogleAuthButton';
+import { useAuth } from '../../lib/stores/authStore';
 
 export default function TokenVerifyPage() {
   const router = useRouter();
-  const [token, setToken] = useState('');
+  const searchParams = useSearchParams();
+  const { inviteToken, setInviteToken, clearInviteToken } = useAuth();
+  const [tokenInput, setTokenInput] = useState('');
+  const [message, setMessage] = useState<{
+    type: 'welcome' | 'retry' | 'error' | 'info';
+    text: string;
+  } | null>(null);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  
+  useEffect(() => {
+    // Check for messages in query params
+    const messageType = searchParams?.get('message');
+    const errorParam = searchParams?.get('error');
+    
+    if (messageType === 'welcome') {
+      setMessage({
+        type: 'welcome',
+        text: 'Welcome to NexusHub! Please enter your invite token to continue.'
+      });
+    } else if (messageType === 'retry' && errorParam) {
+      setMessage({
+        type: 'retry',
+        text: 'The previous token was invalid. Please enter a valid invite token.'
+      });
+      setError(errorParam);
+    } else {
+      setMessage({
+        type: 'info',
+        text: 'Enter your invite token to continue with registration.'
+      });
+    }
+  }, [searchParams]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
-
-    try {
-      // Verify token with backend
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/verify-token/`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (response.ok && data.valid) {
-        // Token is valid, redirect to Google OAuth WITH the token
-        const clientId = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID;
-        const redirectUri = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_REDIRECT_URI;
-        
-        const params = new URLSearchParams({
-          client_id: clientId!,
-          redirect_uri: redirectUri!,
-          response_type: 'code',
-          scope: 'openid email profile',
-          access_type: 'offline',
-          prompt: 'consent',
-          state: data.token, // Pass the verified token in state
-        });
-        
-        window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
-      } else {
-        setError(data.error || 'Invalid token');
-      }
-    } catch (err: any) {
-      setError('Failed to verify token');
-    } finally {
-      setLoading(false);
+    
+    if (!tokenInput.trim()) {
+      setError('Please enter a token');
+      return;
     }
+
+    if (tokenInput.length < 3) {
+      setError('Invalid token length');
+      return;
+    }
+
+    // Store the token in auth store
+    setInviteToken(tokenInput);
+    console.log('✅ Token stored in auth store:', tokenInput);
+    
+    // Clear any error messages
+    setMessage({
+      type: 'info',
+      text: 'Token saved! Click "Continue with Google" to proceed.'
+    });
   };
 
-  const handleBackToLogin = () => {
-    router.push('/');
+  const handleClearToken = () => {
+    clearInviteToken();
+    setTokenInput('');
+    setError('');
+    setMessage({
+      type: 'info',
+      text: 'Enter your invite token to continue.'
+    });
   };
 
   return (
@@ -76,64 +94,104 @@ export default function TokenVerifyPage() {
           
           {/* Title */}
           <h1 className="text-3xl font-bold mb-6">
-            Enter Invite Token
+            {message?.type === 'welcome' ? 'Welcome!' : 'Enter Invite Token'}
           </h1>
+          
+          {/* Message Display */}
+          {message && (
+            <div className={`mb-6 p-4 rounded-lg border ${
+              message.type === 'welcome' 
+                ? 'bg-blue-500/20 border-blue-500/30' 
+                : message.type === 'retry'
+                ? 'bg-red-500/20 border-red-500/30'
+                : 'bg-gray-800/50 border-gray-700'
+            }`}>
+              <p className={`
+                ${message.type === 'welcome' ? 'text-blue-300' : 
+                  message.type === 'retry' ? 'text-red-300' : 
+                  'text-gray-300'}
+              `}>
+                {message.text}
+              </p>
+            </div>
+          )}
           
           {/* Description */}
           <p className="text-gray-300 mb-8">
-            You need a valid invite token to register as a new user. Contact your administrator to get one.
+            New users need a valid invite token to register. Contact your administrator to get one.
           </p>
           
-          {/* Token Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="bg-red-500/20 border border-red-500 text-red-300 px-4 py-3 rounded">
-                {error}
+          {/* If token is stored, show Google button */}
+          {inviteToken ? (
+            <div className="space-y-6">
+              <div className="p-4 bg-green-500/20 border border-green-500/30 rounded-lg">
+                <p className="text-green-300 font-medium mb-2">✓ Token Ready</p>
+                <p className="text-green-400/80 text-sm break-all">
+                  Token: {inviteToken.substring(0, 4)}...{inviteToken.substring(inviteToken.length - 4)}
+                </p>
               </div>
-            )}
-            
-            <div>
-              <input
-                type="text"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="Enter your invite token"
-                className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7CFC9D]"
-                required
-                disabled={loading}
-              />
+              
+              <div className="space-y-4">
+                <GoogleAuthButton 
+                  inviteToken={inviteToken}
+                  isNewUser={true}
+                />
+                
+                <button
+                  onClick={handleClearToken}
+                  className="w-full text-gray-400 hover:text-white text-sm transition-colors py-2"
+                >
+                  Use different token
+                </button>
+              </div>
             </div>
-            
-            <button
-              type="submit"
-              disabled={loading || !token}
-              className="w-full bg-[#7CFC9D] text-black font-semibold py-3 px-4 rounded-lg transition-all duration-300 hover:bg-[#6ee089] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <div className="flex items-center justify-center">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-black mr-2"></div>
-                  Verifying...
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {error && (
+                <div className="bg-red-500/20 border border-red-500 text-red-300 px-4 py-3 rounded text-sm">
+                  {error}
                 </div>
-              ) : (
-                'Continue with Google'
               )}
-            </button>
-          </form>
+              
+              <div>
+                <input
+                  type="text"
+                  value={tokenInput}
+                  onChange={(e) => {
+                    setTokenInput(e.target.value);
+                    setError('');
+                  }}
+                  placeholder="Enter your invite token"
+                  className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7CFC9D] focus:border-transparent"
+                  required
+                  autoComplete="off"
+                  autoFocus
+                />
+              </div>
+              
+              <button
+                type="submit"
+                disabled={!tokenInput.trim()}
+                className="w-full bg-[#7CFC9D] text-black font-semibold py-3 px-4 rounded-lg transition-all duration-300 hover:bg-[#6ee089] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Save Token & Continue
+              </button>
+            </form>
+          )}
           
           <div className="mt-6">
             <button
-              onClick={handleBackToLogin}
-              className="text-gray-400 hover:text-white text-sm transition-colors"
+              onClick={() => {
+                clearInviteToken();
+                router.push('/');
+              }}
+              className="text-gray-400 hover:text-white text-sm transition-colors flex items-center justify-center"
             >
-              ← Back to Login
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Back to Login
             </button>
-          </div>
-          
-          {/* Note */}
-          <div className="mt-8 p-4 bg-gray-800/50 rounded-lg border border-gray-700">
-            <p className="text-sm text-gray-400">
-              <strong>Note:</strong> If you already have an account, just click "Continue with Google" on the login page without entering a token.
-            </p>
           </div>
         </div>
       </div>

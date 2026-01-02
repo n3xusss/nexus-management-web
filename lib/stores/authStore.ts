@@ -1,41 +1,70 @@
-// lib/stores/authStore.ts - FIXED
+// lib/stores/authStore.ts - Cleaned up version
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { 
   logout, 
   formatFrontendUser, 
-  traditionalLogin, 
   getUserProfile,
+  updateUserProfile,
   FrontendUser, 
   AuthResponse,
   BackendUser
 } from '../api';
+
+interface OAuthPendingData {
+  access: string;
+  refresh: string;
+  user: BackendUser;
+  inviteToken?: string;
+}
 
 interface AuthState {
   user: FrontendUser | null;
   token: string | null;
   refreshToken: string | null;
   isLoading: boolean;
+  oauthPending: OAuthPendingData | null;
+  inviteToken: string | null;
+  
+  // Methods
+  setLoading: (loading: boolean) => void;
   login: (authData: AuthResponse) => void;
   logout: () => Promise<void>;
-  setLoading: (loading: boolean) => void;
-  traditionalAuth: (username: string, password: string) => Promise<void>;
   loadUserFromToken: () => Promise<void>;
+  updateProfile: (data: FormData | {
+    username?: string;
+    phone_number?: string;
+    academic_level?: string;
+    tag_ids?: number[];
+    school_id?: number;
+    image?: File | null;
+  }) => Promise<FrontendUser>;
+  checkProfileCompletion: () => boolean;
+  
+  // OAuth methods
+  setOAuthPending: (data: OAuthPendingData) => void;
+  clearOAuthPending: () => void;
+  completeOAuthRegistration: (updatedUser: BackendUser) => void;
+  
+  // Invite token methods
+  setInviteToken: (token: string) => void;
+  clearInviteToken: () => void;
 }
 
-export const useAuthStore = create<AuthState>()(
+// Create the store
+export const authStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
       token: null,
       refreshToken: null,
       isLoading: true,
+      oauthPending: null,
+      inviteToken: null,
 
       setLoading: (loading) => set({ isLoading: loading }),
 
       login: (authData: AuthResponse) => {
-        console.log('🔍 [AuthStore] Login with auth data:', authData);
-        
         if (!authData.user || !authData.access) {
           console.error('Invalid auth data:', authData);
           return;
@@ -47,15 +76,42 @@ export const useAuthStore = create<AuthState>()(
           user: frontendUser, 
           token: authData.access, 
           refreshToken: authData.refresh,
-          isLoading: false
+          isLoading: false,
+          oauthPending: null,
+          inviteToken: null
         });
+      },
+
+      setOAuthPending: (data: OAuthPendingData) => {
+        set({ oauthPending: data, isLoading: false });
+      },
+
+      clearOAuthPending: () => {
+        set({ oauthPending: null });
+      },
+
+      completeOAuthRegistration: (updatedUser: BackendUser) => {
+        const { oauthPending } = get();
+        if (!oauthPending) {
+          console.error('No pending OAuth data to complete');
+          return;
+        }
         
-        console.log('✅ [AuthStore] Login complete, user:', frontendUser);
+        const authData: AuthResponse = {
+          access: oauthPending.access,
+          refresh: oauthPending.refresh,
+          user: updatedUser
+        };
         
-        // Redirect to global page
-        setTimeout(() => {
-          window.location.href = '/global';
-        }, 100);
+        get().login(authData);
+      },
+
+      setInviteToken: (token: string) => {
+        set({ inviteToken: token });
+      },
+
+      clearInviteToken: () => {
+        set({ inviteToken: null });
       },
 
       logout: async () => {
@@ -68,21 +124,16 @@ export const useAuthStore = create<AuthState>()(
         } catch (error) {
           console.warn('Server logout failed:', error);
         }
-
-        // Clear all localStorage items related to auth
-        localStorage.removeItem('oauth_access_token');
-        localStorage.removeItem('oauth_refresh_token');
-        localStorage.removeItem('oauth_user_data');
-        localStorage.removeItem('invite_token');
         
-        set({ user: null, token: null, refreshToken: null, isLoading: false });
+        set({ 
+          user: null, 
+          token: null, 
+          refreshToken: null, 
+          isLoading: false,
+          oauthPending: null,
+          inviteToken: null 
+        });
         window.location.href = '/';
-      },
-
-      traditionalAuth: async (username: string, password: string) => {
-        console.log('Traditional auth for:', username);
-        const authData = await traditionalLogin(username, password);
-        get().login(authData);
       },
 
       loadUserFromToken: async () => {
@@ -98,8 +149,80 @@ export const useAuthStore = create<AuthState>()(
           set({ user: frontendUser, isLoading: false });
         } catch (error) {
           console.error('Failed to load user from token:', error);
-          set({ user: null, token: null, refreshToken: null, isLoading: false });
+          set({ isLoading: false });
         }
+      },
+
+        updateProfile: async (data) => {
+          const { token } = get();
+          if (!token) {
+            throw new Error('No authentication token');
+          }
+
+          try {
+            console.log("AuthStore: Updating profile with data:", data);
+            
+            let updatedUser: BackendUser;
+            
+            if (data instanceof FormData) {
+              // Handle FormData for file uploads
+              console.log("AuthStore: Using FormData");
+              
+              const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/profile/`, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  // Don't set Content-Type for FormData - browser will set it with boundary
+                },
+                body: data,
+              });
+
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error('AuthStore: Profile update failed:', errorText);
+                throw new Error(`Failed to update profile: ${response.status}`);
+              }
+
+              updatedUser = await response.json();
+            } else {
+              // Handle regular JSON data
+              console.log("AuthStore: Using JSON data");
+              
+              const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/profile/`, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data),
+              });
+
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error('AuthStore: Profile update failed:', errorText);
+                throw new Error(`Failed to update profile: ${response.status}`);
+              }
+
+              updatedUser = await response.json();
+            }
+            
+            console.log("AuthStore: Updated user from backend:", updatedUser);
+            console.log("AuthStore: Updated user role:", updatedUser.role);
+            
+            const frontendUser = formatFrontendUser(updatedUser);
+            console.log("AuthStore: Formatted frontend user:", frontendUser);
+            
+            set({ user: frontendUser });
+            return frontendUser;
+          } catch (error) {
+            console.error('AuthStore: Failed to update profile:', error);
+            throw error;
+          }
+        },
+
+      checkProfileCompletion: () => {
+        const { user } = get();
+        return !!(user?.firstName && user?.lastName);
       }
     }),
     {
@@ -107,19 +230,18 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({ 
         user: state.user, 
         token: state.token,
-        refreshToken: state.refreshToken 
+        refreshToken: state.refreshToken,
+        oauthPending: state.oauthPending,
+        inviteToken: state.inviteToken
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
           state.setLoading(false);
-          // Load user after a short delay to ensure storage is ready
-          setTimeout(() => {
-            state.loadUserFromToken();
-          }, 500);
         }
       }
     }
   )
 );
 
-export const useAuth = () => useAuthStore();
+// Export the hook
+export const useAuth = () => authStore();

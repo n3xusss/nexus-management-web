@@ -1,50 +1,48 @@
-// app/hooks/useRegistrationCheck.ts - FIXED
+// hooks/useRegistrationCheck.ts - UPDATED
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '../lib/stores/authStore';
 
 export function useRegistrationCheck() {
-  const { user, token, isLoading } = useAuth();
+  const { user, isLoading, oauthPending } = useAuth(); // Added oauthPending
   const [needsRegistration, setNeedsRegistration] = useState(false);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    const checkRegistration = async () => {
-      if (isLoading) return;
-      if (!user || !token) {
-        setNeedsRegistration(false);
-        setChecking(false);
-        return;
-      }
-
+    // Skip if loading
+    if (isLoading) {
       setChecking(true);
+      return;
+    }
 
-      try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/check-registration/`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+    // Check 1: OAuth pending registration
+    if (oauthPending) {
+      console.log('🔍 OAuth user needs registration (from auth store)');
+      setNeedsRegistration(true);
+      setChecking(false);
+      return;
+    }
 
-        if (!res.ok) {
-          console.error('Failed to check registration status');
-          setNeedsRegistration(false);
-          setChecking(false);
-          return;
-        }
+    // Check 2: Logged in user without complete profile
+    if (user) {
+      const hasCompleteProfile = user.firstName && user.lastName;
+      console.log('🔍 Registration check:', {
+        hasUser: !!user,
+        firstName: user?.firstName,
+        lastName: user?.lastName,
+        needsRegistration: !hasCompleteProfile
+      });
+      
+      setNeedsRegistration(!hasCompleteProfile);
+      setChecking(false);
+      return;
+    }
 
-        const data = await res.json();
-        console.log('🔍 Registration check result:', data);
-        setNeedsRegistration(data.needs_registration || false);
-      } catch (error) {
-        console.error('Registration check error:', error);
-        setNeedsRegistration(false);
-      } finally {
-        setChecking(false);
-      }
-    };
-
-    checkRegistration();
-  }, [user, token, isLoading]);
+    // No user
+    setNeedsRegistration(false);
+    setChecking(false);
+  }, [user, isLoading, oauthPending]);
 
   return { needsRegistration, checking };
 }
