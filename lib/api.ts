@@ -1,4 +1,3 @@
-// lib/api.ts
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 // ====================
@@ -9,7 +8,14 @@ export interface BackendRole {
   id: number;
   role_name: 'mod' | 'manager' | 'member';
 }
-
+export interface Department {
+  id: number;
+  dept_name: string;
+  dept_description: string;
+  members_count?: number;
+  projects?: any[];
+  managers?: any[];
+}
 export interface BackendUser {
   id?: number;
   email: string;
@@ -139,6 +145,25 @@ export interface CalendarDay {
   isCurrentMonth: boolean;
   isToday: boolean;
   events: CalendarEvent[];
+}
+
+
+export interface Event {
+  id: number;
+  event_name: string;
+  event_description: string;
+  event_start_date: string; // ISO datetime string
+  event_end_date: string; // ISO datetime string
+  location: string;
+  status?: string; // Calculated on frontend: 'upcoming' | 'ongoing' | 'completed'
+}
+
+export interface CreateEventData {
+  event_name: string;
+  event_description: string;
+  event_start_date: string; // Format: "YYYY-MM-DDTHH:mm"
+  event_end_date: string; // Format: "YYYY-MM-DDTHH:mm"
+  location: string;
 }
 
 // ====================
@@ -464,7 +489,7 @@ export const getUserProfile = async (token: string): Promise<BackendUser> => {
 };
 
 /**
- * Update user profile with partial data
+ * Update user profile with partial data , image will be added later 
  */
 export const updateUserProfile = async (
   token: string,
@@ -727,20 +752,37 @@ export const getDashboardStats = async (token: string): Promise<DashboardStats> 
 
 export const getTags = async (token?: string): Promise<Array<{ id: number; tag_name: string; color: string }>> => {
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const response = await fetch(`${API_BASE}/tags/`, {
-      headers: {
-        'Authorization': token ? `Bearer ${token}` : '',
-        'Content-Type': 'application/json',
-      },
+      headers,
     });
 
     if (!response.ok) {
-      console.warn('Failed to fetch tags');
+      console.warn('Failed to fetch tags:', response.status);
       return [];
     }
 
     const data = await response.json();
-    return data.results || [];
+    
+    // Handle paginated response
+    if (data.results && Array.isArray(data.results)) {
+      return data.results;
+    }
+    
+    // Handle non-paginated array response
+    if (Array.isArray(data)) {
+      return data;
+    }
+    
+    console.warn('Unexpected response format for tags:', data);
+    return [];
   } catch (error) {
     console.error('Error fetching tags:', error);
     return [];
@@ -800,5 +842,312 @@ export const createCustomSchool = async (
   } catch (error) {
     console.error('Error creating school:', error);
     throw error;
+  }
+};
+
+// Member Management Functions
+
+export const getMembers = async (token: string): Promise<BackendUser[]> => {
+  try {
+    const response = await fetchWithRetry(
+      `${API_BASE}/members/`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+      2,
+      2000
+    );
+
+    if (!response.ok) {
+      console.warn('Failed to fetch members:', response.status);
+      return [];
+    }
+
+    const data = await response.json();
+    
+    // Handle paginated response (if using DRF with PageNumberPagination)
+    if (data.results && Array.isArray(data.results)) {
+      return data.results;
+    }
+    
+    // Handle non-paginated array response
+    if (Array.isArray(data)) {
+      return data;
+    }
+    
+    // Handle single object response
+    if (data && typeof data === 'object') {
+      return [data];
+    }
+    
+    console.warn('Unexpected response format for members:', data);
+    return [];
+  } catch (error) {
+    console.error('Error fetching members:', error);
+    return [];
+  }
+};
+
+export const getDepartments = async (token: string): Promise<Department[]> => {
+  try {
+    const response = await fetchWithRetry(
+      `${API_BASE}/departments/`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+      2,
+      2000
+    );
+
+    if (!response.ok) {
+      console.warn('Failed to fetch departments:', response.status);
+      return [];
+    }
+
+    const data = await response.json();
+    
+    // Handle paginated response
+    if (data.results && Array.isArray(data.results)) {
+      return data.results;
+    }
+    
+    // Handle non-paginated array response
+    if (Array.isArray(data)) {
+      return data;
+    }
+    
+    console.warn('Unexpected response format for departments:', data);
+    return [];
+  } catch (error) {
+    console.error('Error fetching departments:', error);
+    return [];
+  }
+};
+
+export const updateMember = async (
+  token: string, 
+  memberId: number, 
+  data: {
+    department_id?: number | null;
+    role_id?: number;
+    tag_ids?: number[];
+  }
+): Promise<BackendUser> => {
+  const response = await fetch(`${API_BASE}/members/${memberId}/`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Failed to update member:', errorText);
+    throw new Error(`Failed to update member: ${response.status}`);
+  }
+
+  return await response.json();
+};
+
+export const deleteMember = async (token: string, memberId: number): Promise<void> => {
+  const response = await fetch(`${API_BASE}/members/${memberId}/`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Failed to delete member:', errorText);
+    throw new Error(`Failed to delete member: ${response.status}`);
+  }
+};
+
+
+
+
+// ====================
+// EVENT FUNCTIONS 
+// ====================
+
+/**
+ * Fetch all events
+ * Available to: all authenticated users
+ * Mods see all events, others see future events only
+ */
+export const getEvents = async (token: string): Promise<Event[]> => {
+  try {
+    const response = await fetchWithRetry(
+      `${API_BASE}/events/`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+      2,
+      2000
+    );
+
+    if (!response.ok) {
+      console.warn('Failed to fetch events:', response.status);
+      return [];
+    }
+
+    const data = await response.json();
+    
+    // Handle paginated response
+    if (data.results && Array.isArray(data.results)) {
+      return data.results;
+    }
+    
+    // Handle non-paginated array response
+    if (Array.isArray(data)) {
+      return data;
+    }
+    
+    console.warn('Unexpected response format for events:', data);
+    return [];
+  } catch (error) {
+    console.error('Error fetching events:', error);
+    return [];
+  }
+};
+
+/**
+ * Get a single event by ID
+ * Available to: all authenticated users
+ */
+export const getEvent = async (token: string, eventId: number): Promise<Event | null> => {
+  try {
+    const response = await fetch(`${API_BASE}/events/${eventId}/`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.warn('Failed to fetch event:', response.status);
+      return null;
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching event:', error);
+    return null;
+  }
+};
+
+/**
+ * Create a new event
+ * Available to: moderators only
+ */
+export const createEvent = async (
+  token: string,
+  eventData: CreateEventData
+): Promise<Event> => {
+  // Convert datetime-local format to ISO format for backend
+  const formatDateTime = (dateStr: string) => {
+    // Input format: "YYYY-MM-DDTHH:mm"
+    // Output format: "YYYY-MM-DDTHH:mm:ss" (ISO 8601)
+    return `${dateStr}:00`;
+  };
+
+  const formattedData = {
+    ...eventData,
+    event_start_date: formatDateTime(eventData.event_start_date),
+    event_end_date: formatDateTime(eventData.event_end_date),
+  };
+
+  const response = await fetch(`${API_BASE}/events/`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(formattedData),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Failed to create event:', errorText);
+    throw new Error(`Failed to create event: ${response.status}`);
+  }
+
+  return await response.json();
+};
+
+/**
+ * Update an existing event
+ * Available to: moderators only
+ */
+export const updateEvent = async (
+  token: string,
+  eventId: number,
+  eventData: Partial<CreateEventData>
+): Promise<Event> => {
+  // Format datetime fields if they exist
+  const formatDateTime = (dateStr: string) => {
+    if (!dateStr) return dateStr;
+    // If already in ISO format, return as is
+    if (dateStr.includes(':00')) return dateStr;
+    // Otherwise, add seconds
+    return `${dateStr}:00`;
+  };
+
+  const formattedData = {
+    ...eventData,
+    ...(eventData.event_start_date && {
+      event_start_date: formatDateTime(eventData.event_start_date),
+    }),
+    ...(eventData.event_end_date && {
+      event_end_date: formatDateTime(eventData.event_end_date),
+    }),
+  };
+
+  const response = await fetch(`${API_BASE}/events/${eventId}/`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(formattedData),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Failed to update event:', errorText);
+    throw new Error(`Failed to update event: ${response.status}`);
+  }
+
+  return await response.json();
+};
+
+/**
+ * Delete an event
+ * Available to: moderators only
+ */
+export const deleteEvent = async (token: string, eventId: number): Promise<void> => {
+  const response = await fetch(`${API_BASE}/events/${eventId}/`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Failed to delete event:', errorText);
+    throw new Error(`Failed to delete event: ${response.status}`);
   }
 };

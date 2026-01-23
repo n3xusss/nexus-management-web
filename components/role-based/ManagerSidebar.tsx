@@ -4,7 +4,7 @@ import { useDashboardStore } from '../../lib/stores/dashboardStore';
 import { useAuth } from '../../lib/stores/authStore';
 import { useState, useEffect } from 'react';
 
-// Simplified BackgroundPattern component for sidebar
+// Reusable SidebarBackgroundPattern component
 const SidebarBackgroundPattern = () => {
   const [isClient, setIsClient] = useState(false);
 
@@ -73,18 +73,15 @@ const SidebarBackgroundPattern = () => {
   );
 };
 
-const adminNavItems = [
+// Manager-specific navigation items
+const managerNavItems = [
   { id: 'dashboard', label: 'Dashboard', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
   { id: 'projects', label: 'Projects', icon: 'M12 2 2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5' },
-  { id: 'departments', label: 'Departments', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75' },
-  { id: 'members', label: 'Members', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8' },
-  { id: 'tasks', label: 'Tasks', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8' },
   { id: 'meetings', label: 'Meetings', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
-  { id: 'events', label: 'Events', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z' },
   { id: 'issues', label: 'Issues & Reports', icon: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3 M12 17h.01' },
 ];
 
-export default function AdminSidebar() {
+export default function ManagerSidebar() {
   const { activeSection, setActiveSection } = useDashboardStore();
   const { user } = useAuth();
 
@@ -100,17 +97,7 @@ export default function AdminSidebar() {
       }
       return user.name.substring(0, 2).toUpperCase();
     }
-    return 'A';
-  };
-
-  // Get user role display name
-  const getUserRoleDisplay = () => {
-    switch (user?.role) {
-      case 'admin': return 'Administrator';
-      case 'manager': return 'Manager';
-      case 'member': return 'Member';
-      default: return 'User';
-    }
+    return 'M';
   };
 
   return (
@@ -133,7 +120,7 @@ export default function AdminSidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 p-3 overflow-y-auto">
-          {adminNavItems.map((item) => (
+          {managerNavItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveSection(item.id)}
@@ -216,10 +203,10 @@ export default function AdminSidebar() {
               {/* User Info */}
               <div className="flex-1 min-w-0">
                 <div className="text-white text-sm font-semibold truncate group-hover:text-[#00d084] transition-colors duration-300">
-                  {user?.name || 'Admin User'}
+                  {user?.name || 'Manager User'}
                 </div>
                 <div className="text-[#808080] text-xs truncate group-hover:text-white/80 transition-colors duration-300">
-                  {getUserRoleDisplay()}
+                  Manager
                 </div>
                 
                 {/* User Stats - Only show if available */}
