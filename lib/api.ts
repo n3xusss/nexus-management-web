@@ -361,32 +361,7 @@ export const exchangeGoogleCode = async (
   }
 };
 
-/**
- * Traditional username/password login
- */
-export const traditionalLogin = async (
-  username: string,
-  password: string
-): Promise<AuthResponse> => {
-  try {
-    const response = await fetch(`${API_BASE}/auth/login/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.detail || `Login failed: ${response.status}`);
-    }
-
-    return data;
-  } catch (error) {
-    console.error('Traditional login error:', error);
-    throw error;
-  }
-};
 
 /**
  * Validate invite token before allowing registration
