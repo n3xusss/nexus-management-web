@@ -1,13 +1,13 @@
 // Update app/accounts/google/callback/page.tsx - Fix redirect logic
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import BackgroundPattern from '../../../../components/BackgroundPattern';
 import { useAuth } from '../../../../lib/stores/authStore';
 import { exchangeGoogleCode, getUserProfile } from '../../../../lib/api';
 
-export default function GoogleCallback() {
+function GoogleCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login, setOAuthPending, inviteToken, clearInviteToken } = useAuth();
@@ -275,5 +275,29 @@ export default function GoogleCallback() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function GoogleCallback() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-[#2A2A2A] text-white">
+        <BackgroundPattern />
+        <div className="relative z-10 min-h-screen flex items-center justify-center">
+          <div className="text-center">
+            <div className="relative">
+              <div className="w-16 h-16 border-4 border-gray-700 border-t-[#7CFC9D] rounded-full animate-spin mx-auto"></div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-8 h-8 bg-[#7CFC9D] rounded-full animate-ping opacity-75"></div>
+              </div>
+            </div>
+            <p className="text-white mt-6 text-lg font-medium">Loading...</p>
+            <p className="text-gray-400 mt-2 text-sm">Please wait</p>
+          </div>
+        </div>
+      </main>
+    }>
+      <GoogleCallbackContent />
+    </Suspense>
   );
 }
