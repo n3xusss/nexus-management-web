@@ -1,319 +1,630 @@
+// app/global/components/content/DashboardContent.tsx
 'use client';
 
-import { useDashboardStore } from '../../lib/stores/dashboardStore';
+import { useEffect, useState ,useRef,useCallback} from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/stores/authStore';
-import { useState, useEffect } from 'react';
+import { useDashboardStore } from '../../lib/stores/dashboardStore';
+import {
+  getDashboardStats,
+  getRecentActivities,
+  getNewMembers,
+  DashboardStats,
+  Activity,
+  NewMember,
+} from '../../lib/api';
 
-// Simplified BackgroundPattern component for sidebar
-const SidebarBackgroundPattern = () => {
-  const [isClient, setIsClient] = useState(false);
+// Stat Card Component
+interface StatCardProps {
+  title: string;
+  value: number;
+  subtitle: string;
+  icon: React.ReactNode;
+  badge?: { text: string; type: 'active' | 'warning' | 'danger' | 'success' };
+  onClick?: () => void;
+}
 
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
+const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, icon, badge, onClick }) => (
+  <div
+    onClick={onClick}
+    className="bg-[#1e1e1e] border border-[#3a3a3a] rounded-xl p-6 hover:border-[#00d084] hover:transform hover:-translate-y-1 transition-all duration-200 cursor-pointer"
+  >
+    <div className="flex justify-between items-start mb-4">
+      <div className="w-10 h-10 bg-[#2a2a2a] rounded-lg flex items-center justify-center">
+        {icon}
+      </div>
+      {badge && (
+        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+          badge.type === 'active' ? 'bg-[#00d084] text-white' :
+          badge.type === 'warning' ? 'bg-[#e67e22] text-white' :
+          badge.type === 'danger' ? 'bg-[#e74c3c] text-white' :
+          'bg-[#2ecc71] text-white'
+        }`}>
+          {badge.text}
+        </span>
+      )}
+    </div>
+    <div className="text-3xl font-bold text-white mb-1">{value}</div>
+    <div className="text-sm text-[#808080]">{title}</div>
+    <div className="text-xs text-[#666] mt-1">{subtitle}</div>
+  </div>
+);
 
-  if (!isClient) return null;
+// Activity Item Component
+interface ActivityItemProps {
+  type: 'project' | 'task' | 'meeting' | 'issue';
+  title: string;
+  description: string;
+  time: string;
+}
+
+const ActivityItem: React.FC<ActivityItemProps> = ({ type, title, description, time }) => {
+  const getIcon = () => {
+    switch (type) {
+      case 'project': return (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+        </svg>
+      );
+      case 'task': return (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+        </svg>
+      );
+      case 'meeting': return (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+      );
+      case 'issue': return (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+      );
+    }
+  };
+
+  const getColor = () => {
+    switch (type) {
+      case 'project': return 'bg-blue-500/10 text-blue-400';
+      case 'task': return 'bg-[#00d084]/10 text-[#00d084]';
+      case 'meeting': return 'bg-purple-500/10 text-purple-400';
+      case 'issue': return 'bg-red-500/10 text-red-400';
+    }
+  };
 
   return (
-    <div className="absolute inset-0 overflow-hidden rounded-lg">
-      {/* Animated gradient background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[#00d084]/5 via-transparent to-[#007a52]/5"></div>
-      
-      {/* Floating organic shapes */}
-      <div className="blob-sidebar absolute -top-6 -left-6 w-32 h-32 rounded-[40%_60%_70%_30%/40%_50%_60%_50%] bg-gradient-to-br from-[#00d084]/10 to-[#007a52]/5 border border-[#00d084]/20"></div>
-      
-      <div className="blob-sidebar absolute -bottom-6 -right-6 w-28 h-28 rounded-[60%_40%_30%_70%/60%_30%_70%_40%] bg-gradient-to-tr from-[#007a52]/10 to-transparent border border-[#00d084]/15" 
-        style={{animationDelay: '2s'}}></div>
-      
-      {/* Glowing orbs */}
-      <div className="pulse-sidebar absolute top-4 left-4 w-8 h-8 bg-[#00d084]/20 rounded-full"></div>
-      <div className="pulse-sidebar absolute bottom-4 right-4 w-6 h-6 bg-[#00d084]/15 rounded-full" 
-        style={{animationDelay: '1s'}}></div>
-      
-      {/* Particle trails */}
-      <div 
-        className="absolute top-1/2 left-0 w-16 h-[1px] bg-gradient-to-r from-transparent via-[#00d084]/30 to-transparent"
-        style={{animation: 'particle-trail 8s ease-in-out infinite'}}
-      ></div>
-      <div 
-        className="absolute top-1/3 right-0 w-12 h-[1px] bg-gradient-to-l from-transparent via-[#007a52]/25 to-transparent"
-        style={{animation: 'particle-trail 6s ease-in-out 2s infinite'}}
-      ></div>
-      
-      {/* Small floating particles */}
-      {[...Array(6)].map((_, i) => (
-        <div
-          key={i}
-          className="absolute w-1 h-1 bg-[#00d084] rounded-full"
-          style={{
-            top: `${20 + Math.random() * 60}%`,
-            left: `${10 + Math.random() * 80}%`,
-            animation: `particle-trail ${5 + Math.random() * 8}s ease-in-out ${Math.random() * 5}s infinite`,
-            opacity: 0.3
-          }}
-        ></div>
-      ))}
-      
-      {/* Rotating ring accent */}
-      <div 
-        className="absolute top-1/2 left-1/2 w-12 h-12 border border-[#00d084]/20 rounded-full -translate-x-1/2 -translate-y-1/2"
-        style={{animation: 'rotate-orb 20s linear infinite'}}
-      >
-        <div className="absolute top-0 left-1/2 w-1 h-1 bg-[#00d084] rounded-full -translate-x-1/2"></div>
+    <div className="flex gap-3 p-3 bg-[#2a2a2a] rounded-lg">
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${getColor()}`}>
+        {getIcon()}
       </div>
-      
-      {/* Noise texture overlay */}
-      <div 
-        className="absolute inset-0 opacity-[0.02] mix-blend-overlay"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
-        }}
-      ></div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold text-white mb-1">{title}</div>
+        <div className="text-xs text-[#808080]">{description}</div>
+      </div>
+      <div className="text-xs text-[#808080] whitespace-nowrap">{time}</div>
     </div>
   );
 };
 
-const adminNavItems = [
-  { id: 'dashboard', label: 'Dashboard', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
-  { id: 'projects', label: 'Projects', icon: 'M12 2 2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5' },
-  { id: 'departments', label: 'Departments', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75' },
-  { id: 'members', label: 'Members', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8' },
-  { id: 'tasks', label: 'Tasks', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8' },
-  { id: 'meetings', label: 'Meetings', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
-  { id: 'events', label: 'Events', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z' },
-  { id: 'issues', label: 'Issues & Reports', icon: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3 M12 17h.01' },
-];
+// New Member Item Component
+interface NewMemberItemProps {
+  member: NewMember;
+}
 
-export default function AdminSidebar() {
-  const { activeSection, setActiveSection } = useDashboardStore();
-  const { user } = useAuth();
+const NewMemberItem: React.FC<NewMemberItemProps> = ({ member }) => {
+  const { setActiveSection } = useDashboardStore();
+  const router = useRouter();
 
-  // Get user initials with fallback
-  const getUserInitials = () => {
-    if (user?.firstName && user?.lastName) {
-      return `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();
-    }
-    if (user?.name) {
-      const names = user.name.split(' ');
-      if (names.length >= 2) {
-        return `${names[0].charAt(0)}${names[1].charAt(0)}`.toUpperCase();
-      }
-      return user.name.substring(0, 2).toUpperCase();
-    }
-    return 'A';
-  };
-
-  // Get user role display name
-  const getUserRoleDisplay = () => {
-    switch (user?.role) {
-      case 'admin': return 'Administrator';
-      case 'manager': return 'Manager';
-      case 'member': return 'Member';
-      default: return 'User';
-    }
+  const handleViewMember = () => {
+    setActiveSection('members');
   };
 
   return (
-    <>
-      <div className="w-64 bg-[#1e1e1e] border-r border-[#3a3a3a] flex flex-col min-h-screen sticky top-0">
-        {/* Sidebar Header */}
-        <div className="px-6 h-17 border-b border-[#3a3a3a] flex items-center gap-2">
-          {/* Icon */}
-          <img
-            src="/favicon.svg"
-            alt="EX HUB Icon"
-            className="h-9 w-auto object-contain"
-          />
-
-          {/* Text */}
-          <span className="text-[#f2f2f2]/40 text-2xl font-bold tracking-wide">
-            EX HUB
-          </span>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 p-3 overflow-y-auto">
-          {adminNavItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveSection(item.id)}
-              className={`
-                flex items-center gap-3 w-full p-3 mb-2 rounded-lg transition-all duration-200 cursor-pointer
-                relative overflow-hidden group
-                ${activeSection === item.id
-                  ? 'bg-gradient-to-r from-[#00d084] to-[#00a66c] text-white shadow-lg shadow-[#00d084]/20'
-                  : 'text-[#808080] hover:text-white hover:bg-[#2a2a2a]'
-                }
-              `}
-            >
-              {/* Enhanced hover effects */}
-              {activeSection !== item.id && (
-                <>
-                  {/* Hover glow effect */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#00d084]/0 to-transparent group-hover:via-[#00d084]/10 transition-all duration-300"></div>
-                  
-                  {/* Hover shine effect */}
-                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer"></div>
-                  </div>
-                </>
-              )}
-              
-              <svg
-                className="w-5 h-5 group-hover:scale-110 transition-transform duration-200"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
-              </svg>
-              
-              <span className="text-sm font-medium group-hover:tracking-wider transition-all duration-200">
-                {item.label}
+    <div 
+      onClick={handleViewMember}
+      className="flex items-center gap-3 p-3 bg-[#2a2a2a] rounded-lg hover:bg-[#3a3a3a] transition-colors cursor-pointer"
+    >
+      <div className="w-10 h-10 bg-[#00d084] rounded-full flex items-center justify-center text-black font-bold text-lg">
+        {member.name.charAt(0).toUpperCase()}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold text-white mb-1">{member.name}</div>
+        <div className="text-xs text-[#808080]">
+          <div>{member.level} • {member.department}</div>
+          <div className="flex flex-wrap gap-1 mt-1">
+            {member.tags.map((tag, index) => (
+              <span key={index} className="px-2 py-0.5 bg-[#1e1e1e] text-xs rounded">
+                {tag}
               </span>
-            </button>
-          ))}
-        </nav>
-
-        {/* Profile Footer with Enhanced Background */}
-        <div className="p-4 border-t border-[#3a3a3a]">
-          <div className="relative rounded-xl overflow-hidden bg-gradient-to-br from-[#1e1e1e] to-[#2a2a2a] border border-[#3a3a3a] group transition-all duration-300 hover:border-[#00d084]/50 hover:shadow-lg hover:shadow-[#00d084]/10">
-            {/* Background Pattern */}
-            <SidebarBackgroundPattern />
-            
-            {/* Glow effect overlay */}
-            <div className="absolute inset-0 bg-gradient-to-br from-[#00d084]/0 via-[#00d084]/0 to-[#00d084]/0 group-hover:via-[#00d084]/2 group-hover:to-[#00d084]/5 transition-all duration-500"></div>
-            
-            {/* Content */}
-            <div className="relative z-10 flex items-center gap-3 p-4">
-              {/* Animated Avatar Container */}
-              <div className="relative">
-                {/* Avatar glow effect */}
-                <div className="absolute -inset-1 bg-gradient-to-r from-[#00d084] to-[#00a66c] rounded-full blur opacity-30 group-hover:opacity-50 transition-all duration-300"></div>
-                
-                {/* Avatar */}
-                {user?.image ? (
-                  <img 
-                    src={user.image} 
-                    alt={user.name}
-                    className="relative w-12 h-12 rounded-full object-cover border-2 border-[#00d084] shadow-lg z-10"
-                  />
-                ) : (
-                  <div className="relative w-12 h-12 rounded-full bg-gradient-to-br from-[#00d084] to-[#00a66c] flex items-center justify-center border-2 border-white/20 shadow-lg z-10">
-                    <span className="text-white text-lg font-bold">
-                      {getUserInitials()}
-                    </span>
-                  </div>
-                )}
-                
-                {/* Online status indicator */}
-                <div className="absolute bottom-0 right-0 w-3 h-3 bg-[#00d084] rounded-full border-2 border-[#1e1e1e] shadow-md z-20">
-                  <div className="absolute inset-0 bg-[#00d084] rounded-full animate-ping opacity-75"></div>
-                </div>
-              </div>
-              
-              {/* User Info */}
-              <div className="flex-1 min-w-0">
-                <div className="text-white text-sm font-semibold truncate group-hover:text-[#00d084] transition-colors duration-300">
-                  {user?.name || 'Admin User'}
-                </div>
-                <div className="text-[#808080] text-xs truncate group-hover:text-white/80 transition-colors duration-300">
-                  {getUserRoleDisplay()}
-                </div>
-                
-                {/* User Stats - Only show if available */}
-                {user?.department && (
-                  <div className="flex items-center gap-2 mt-1">
-                    <svg className="w-3 h-3 text-[#00d084]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
-                    </svg>
-                    <span className="text-xs text-[#808080] truncate">
-                      {user.department.name}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            {/* Hover accent line */}
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-[#00d084] to-transparent transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-center"></div>
-            
-            {/* Interactive background elements that appear on hover */}
-            <div className="absolute -top-4 -right-4 w-8 h-8 bg-[#00d084]/10 rounded-full blur-md opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-            <div className="absolute -bottom-4 -left-4 w-6 h-6 bg-[#00a66c]/10 rounded-full blur-md opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
+            ))}
           </div>
         </div>
       </div>
-      
-      {/* Global styles moved outside the main div */}
-      <style jsx global>{`
-        @keyframes float-sidebar {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(15px, -10px) scale(1.05); }
-          66% { transform: translate(-10px, 15px) scale(0.95); }
-        }
-        
-        @keyframes pulse-sidebar {
-          0%, 100% { opacity: 0.3; }
-          50% { opacity: 0.5; }
-        }
-        
-        @keyframes particle-trail {
-          0% { transform: translateX(-20px) translateY(0); opacity: 0; }
-          20% { opacity: 0.4; }
-          80% { opacity: 0.4; }
-          100% { transform: translateX(60px) translateY(-15px); opacity: 0; }
-        }
-        
-        @keyframes rotate-orb {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        
-        @keyframes pop-in {
-          0% {
-            transform: scale(1);
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-          }
-          50% {
-            transform: scale(1.02);
-            box-shadow: 0 10px 25px -5px rgba(0, 208, 132, 0.2), 0 5px 10px -5px rgba(0, 208, 132, 0.04);
-          }
-          100% {
-            transform: scale(1);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-          }
-        }
-        
-        @keyframes shimmer {
-          0% {
-            background-position: -1000px 0;
-          }
-          100% {
-            background-position: 1000px 0;
-          }
-        }
-        
-        .blob-sidebar { animation: float-sidebar 15s ease-in-out infinite; }
-        .pulse-sidebar { animation: pulse-sidebar 3s ease-in-out infinite; }
-        
-        .group:hover {
-          animation: pop-in 0.3s ease-out;
-          box-shadow: 0 10px 25px -5px rgba(0, 208, 132, 0.1), 0 5px 10px -5px rgba(0, 208, 132, 0.04);
-        }
-        
-        .animate-shimmer {
-          background: linear-gradient(
-            90deg,
-            transparent 0%,
-            rgba(255, 255, 255, 0.1) 50%,
-            transparent 100%
-          );
-          background-size: 1000px 100%;
-          animation: shimmer 2s infinite linear;
-        }
-      `}</style>
-    </>
+      <div className="text-xs text-[#666] whitespace-nowrap">{member.joinDate}</div>
+    </div>
+  );
+};
+
+// Quick Action Component
+interface QuickActionProps {
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}
+
+const QuickAction: React.FC<QuickActionProps> = ({ title, description, icon, onClick, disabled }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    className={`bg-[#1e1e1e] border border-[#3a3a3a] rounded-xl p-4 text-left hover:border-[#00d084] hover:transform hover:-translate-y-1 transition-all duration-200 ${
+      disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+    }`}
+  >
+    <div className="w-12 h-12 bg-[#2a2a2a] rounded-lg flex items-center justify-center mb-3">
+      {icon}
+    </div>
+    <div className="text-base font-semibold text-white mb-1">{title}</div>
+    <div className="text-sm text-[#808080]">{description}</div>
+  </button>
+);
+
+
+  export default function DashboardContent() {
+  const { user, token } = useAuth();
+  const { setActiveSection } = useDashboardStore();
+  const router = useRouter();
+  
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [newMembers, setNewMembers] = useState<NewMember[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Add these refs to prevent duplicate requests
+  const hasFetchedRef = useRef(false);
+  const isFetchingRef = useRef(false);
+
+const fetchDashboardData = useCallback(async () => {
+  // Prevent multiple simultaneous requests
+  if (isFetchingRef.current || !token || hasFetchedRef.current) {
+    return;
+  }
+
+  try {
+    isFetchingRef.current = true;
+    setLoading(true);
+    
+    // Add debouncing delay
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // Fetch stats first
+    const statsData = await getDashboardStats(token);
+    setStats(statsData);
+    
+    // Add delay between calls
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Fetch activities
+    const activitiesData = await getRecentActivities(token);
+    setActivities(activitiesData);
+    
+    // Add delay before optional call
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Only fetch new members for admin
+    let newMembersData: NewMember[] = [];
+    if (user?.role === 'admin') {
+      newMembersData = await getNewMembers(token);
+    }
+    
+    setNewMembers(newMembersData);
+    hasFetchedRef.current = true;
+  } catch (error) {
+    console.error('Failed to fetch dashboard data:', error);
+  } finally {
+    isFetchingRef.current = false;
+    setLoading(false);
+  }
+}, [token, user?.role]);
+
+  useEffect(() => {
+    // Only fetch if we have a token AND haven't fetched yet
+    if (token && !hasFetchedRef.current) {
+    const timeoutId = setTimeout(() => {
+      fetchDashboardData();
+    }, 1000); // Add 1 second delay on initial load
+    
+    return () => clearTimeout(timeoutId);
+  }
+    
+    // Cleanup function to reset fetching flag if component unmounts
+    return () => {
+      isFetchingRef.current = false;
+    };
+  }, [token, fetchDashboardData]);
+
+  // Optional: Add a refresh function if you want manual refresh capability
+  const handleRefresh = () => {
+    hasFetchedRef.current = false;
+    fetchDashboardData();
+  };
+
+  const handleQuickAction = (action: string) => {
+    switch (action) {
+      case 'create-project':
+        setActiveSection('projects');
+        break;
+      case 'create-department':
+        setActiveSection('departments');
+        break;
+      case 'schedule-meeting':
+        setActiveSection('meetings');
+        break;
+      case 'assign-task':
+        setActiveSection('tasks');
+        break;
+      case 'create-event':
+        setActiveSection('events');
+        break;
+      case 'view-projects':
+        setActiveSection('projects');
+        break;
+      case 'view-tasks':
+        setActiveSection('tasks');
+        break;
+      case 'view-meetings':
+        setActiveSection('meetings');
+        break;
+      default:
+        console.log(`Action: ${action}`);
+    }
+  };
+
+  const handleStatClick = (statType: string) => {
+    // Navigate to the corresponding section
+    setActiveSection(statType);
+  };
+
+  // The rest of your JSX remains exactly the same...
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#7CFC9D] mx-auto mb-4"></div>
+          <p className="text-white">Loading dashboard data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">
+          {user?.role === 'admin' ? 'Dashboard Overview' : 'My Dashboard'}
+        </h1>
+        <p className="text-[#808080]">
+          {user?.role === 'admin' ? 'Welcome back! Here\'s what\'s happening with your club.' : 'Track your tasks and activities'}
+        </p>
+      </div>
+
+      {/* Stats Grid - Role-based */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Admin Stats */}
+        {user?.role === 'admin' && stats && (
+          <>
+            <StatCard
+              title="Total Projects"
+              value={stats.totalProjects || 0}
+              subtitle={`${stats.activeProjects || 0} Active`}
+              icon={
+                <svg className="w-5 h-5 text-[#00d084]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                </svg>
+              }
+              badge={{ text: `${stats.activeProjects || 0} Active`, type: 'active' }}
+              onClick={() => handleStatClick('projects')}
+            />
+            
+            <StatCard
+              title="Club Members"
+              value={stats.totalMembers || 0}
+              subtitle={`${stats.totalDepartments || 0} Departments`}
+              icon={
+                <svg className="w-5 h-5 text-[#00d084]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="9" cy="7" r="4"></circle>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                </svg>
+              }
+              badge={{ text: `${stats.totalDepartments || 0} Depts`, type: 'active' }}
+              onClick={() => handleStatClick('members')}
+            />
+            
+            <StatCard
+              title="Active Tasks"
+              value={stats.totalTasks || 0}
+              subtitle="Across all projects"
+              icon={
+                <svg className="w-5 h-5 text-[#e67e22]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                </svg>
+              }
+              onClick={() => handleStatClick('tasks')}
+            />
+            
+            <StatCard
+              title="Open Issues"
+              value={stats.openIssues || 0}
+              subtitle="Require attention"
+              icon={
+                <svg className="w-5 h-5 text-[#e74c3c]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+              }
+              badge={{ text: 'Needs Review', type: 'danger' }}
+              onClick={() => handleStatClick('issues')}
+            />
+          </>
+        )}
+
+        {/* Non-admin Stats */}
+        {user?.role !== 'admin' && stats && (
+          <>
+            <StatCard
+              title="My Tasks"
+              value={stats.assignedTasks || 0}
+              subtitle={`${stats.completedTasks || 0} Completed`}
+              icon={
+                <svg className="w-5 h-5 text-[#00d084]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                </svg>
+              }
+              onClick={() => handleStatClick('tasks')}
+            />
+            
+            <StatCard
+              title="Upcoming Meetings"
+              value={stats.upcomingMeetings || 0}
+              subtitle="You're invited to"
+              icon={
+                <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+              }
+              onClick={() => handleStatClick('meetings')}
+            />
+            
+            <StatCard
+              title="Tasks Due Soon"
+              value={stats.tasksDueSoon || 0}
+              subtitle="Next 7 days"
+              icon={
+                <svg className="w-5 h-5 text-[#e67e22]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+              }
+              badge={{ text: 'Urgent', type: 'warning' }}
+              onClick={() => handleStatClick('tasks')}
+            />
+            
+            <StatCard
+              title="Active Projects"
+              value={stats.assignedTasks || 0} // Using tasks as project indicator
+              subtitle="You're involved in"
+              icon={
+                <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                </svg>
+              }
+              onClick={() => handleStatClick('projects')}
+            />
+          </>
+        )}
+      </div>
+
+      {/* Quick Actions - Admin only */}
+      {user?.role === 'admin' && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-white">Quick Actions</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <QuickAction
+              title="Create Project"
+              description="Start a new club project"
+              icon={
+                <svg className="w-6 h-6 text-[#00d084]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M12 5v14m-7-7h14"></path>
+                </svg>
+              }
+              onClick={() => handleQuickAction('create-project')}
+            />
+            
+            <QuickAction
+              title="Create Department"
+              description="Add a new department"
+              icon={
+                <svg className="w-6 h-6 text-[#00d084]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="9" cy="7" r="4"></circle>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                </svg>
+              }
+              onClick={() => handleQuickAction('create-department')}
+            />
+            
+            <QuickAction
+              title="Schedule Meeting"
+              description="Create a new meeting"
+              icon={
+                <svg className="w-6 h-6 text-[#00d084]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+              }
+              onClick={() => handleQuickAction('schedule-meeting')}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Non-admin Quick Actions */}
+      {user?.role !== 'admin' && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-white">Quick Actions</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <QuickAction
+              title="View My Tasks"
+              description="Check your assigned tasks"
+              icon={
+                <svg className="w-6 h-6 text-[#00d084]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"></path>
+                  <rect x="9" y="3" width="6" height="4" rx="2"></rect>
+                  <path d="M9 12h6"></path>
+                  <path d="M9 16h6"></path>
+                </svg>
+              }
+              onClick={() => handleQuickAction('view-tasks')}
+            />
+            
+            <QuickAction
+              title="Upcoming Meetings"
+              description="View your meetings"
+              icon={
+                <svg className="w-6 h-6 text-[#00d084]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+              }
+              onClick={() => handleQuickAction('view-meetings')}
+            />
+            
+            <QuickAction
+              title="Report Issue"
+              description="Report task issues"
+              icon={
+                <svg className="w-6 h-6 text-[#00d084]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+              }
+              onClick={() => handleQuickAction('report-issue')}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Recent Activity & New Members */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Recent Activity */}
+        <div className="bg-[#1e1e1e] border border-[#3a3a3a] rounded-xl p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-white">Recent Activity</h2>
+            <button 
+              onClick={() => handleQuickAction('view-projects')}
+              className="text-sm text-[#808080] hover:text-white transition-colors"
+            >
+              View All
+            </button>
+          </div>
+          <div className="space-y-3">
+            {activities.length > 0 ? (
+              activities.map((activity, index) => (
+                <ActivityItem
+                  key={index}
+                  type={activity.type}
+                  title={activity.title}
+                  description={activity.description}
+                  time={activity.time}
+                />
+              ))
+            ) : (
+              <div className="text-center py-8 text-[#808080]">
+                No recent activities
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* New Members (Admin only) or Recent Updates */}
+        {user?.role === 'admin' ? (
+          <div className="bg-[#1e1e1e] border border-[#3a3a3a] rounded-xl p-6">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-semibold text-white">New Members</h2>
+                {newMembers.length > 0 && (
+                  <span className="bg-[#00d084] text-white text-xs font-semibold px-2 py-1 rounded-full">
+                    {newMembers.length} New
+                  </span>
+                )}
+              </div>
+              <button 
+                onClick={() => handleStatClick('members')}
+                className="text-sm text-[#808080] hover:text-white transition-colors"
+              >
+                View All
+              </button>
+            </div>
+            <div className="space-y-3">
+              {newMembers.length > 0 ? (
+                newMembers.slice(0, 3).map((member) => (
+                  <NewMemberItem key={member.id} member={member} />
+                ))
+              ) : (
+                <div className="text-center py-8 text-[#808080]">
+                  No new members in the last 30 days
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="bg-[#1e1e1e] border border-[#3a3a3a] rounded-xl p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-white">My Updates</h2>
+            </div>
+            <div className="space-y-4">
+              <div className="p-4 bg-[#2a2a2a] rounded-lg">
+                <div className="text-sm font-semibold text-white mb-2">
+                  Welcome!
+                </div>
+                <div className="text-xs text-[#808080]">
+                  Track your tasks and meetings from here. Report any issues you encounter.
+                </div>
+              </div>
+              
+              {stats && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-[#2a2a2a] rounded-lg text-center">
+                    <div className="text-lg font-bold text-white">{stats.completedTasks || 0}</div>
+                    <div className="text-xs text-[#808080]">Tasks Done</div>
+                  </div>
+                  <div className="p-3 bg-[#2a2a2a] rounded-lg text-center">
+                    <div className="text-lg font-bold text-white">{stats.tasksDueSoon || 0}</div>
+                    <div className="text-xs text-[#808080]">Due Soon</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
