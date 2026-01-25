@@ -24,7 +24,6 @@ const adminComponentMap = {
   projects: ProjectsContent,
   departments: DepartmentsContent,
   members: MembersContent,
-  tasks: TasksContent,
   meetings: MeetingsContent,
   events: EventsContent,
   issues: IssuesContent,
@@ -90,7 +89,7 @@ export default function GlobalPage() {
         needsRegistration: !hasCompleteProfile,
         role: user.role // Log role for debugging
       });
-      
+
       if (!hasCompleteProfile) {
         console.log('⚠️ User needs profile completion, redirecting to /register/complete');
         router.push('/register/complete');
@@ -174,8 +173,8 @@ export default function GlobalPage() {
                 </div>
                 <div>
                   <h1 className="text-lg font-bold text-white tracking-tight">
-                    {isClient && activeSection 
-                      ? activeSection.charAt(0).toUpperCase() + activeSection.slice(1) 
+                    {isClient && activeSection
+                      ? activeSection.charAt(0).toUpperCase() + activeSection.slice(1)
                       : 'Dashboard'} Dashboard
                   </h1>
                   <div className="flex items-center gap-2 text-xs text-[#808080]">
@@ -201,15 +200,15 @@ export default function GlobalPage() {
                 <span className="absolute top-1 right-1 w-2 h-2 bg-[#e74c3c] rounded-full"></span>
               </button>
 
-              <div 
+              <div
                 className="flex items-center gap-3 p-2 rounded-lg bg-[#2a2a2a] hover:bg-[#3a3a3a] transition-colors cursor-pointer group"
                 onClick={() => setActiveSection('profile')}
               >
                 <div className="relative">
                   {user.image ? (
-                    <img 
-                      src={user.image} 
-                      alt="Profile" 
+                    <img
+                      src={user.image}
+                      alt="Profile"
                       className="w-8 h-8 rounded-full object-cover border-2 border-[#00d084]"
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
@@ -225,7 +224,7 @@ export default function GlobalPage() {
                   )}
                   <div className="absolute bottom-0 right-0 w-2 h-2 bg-[#00d084] rounded-full border border-[#1e1e1e]"></div>
                 </div>
-                
+
                 <div className="hidden md:block">
                   <div className="text-sm font-semibold text-white group-hover:text-[#00d084] transition-colors">
                     {getUserDisplayName()}
