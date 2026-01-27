@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from "react";
 import {
   DndContext,
   closestCenter,
@@ -9,24 +9,25 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
-} from '@dnd-kit/core';
+} from "@dnd-kit/core";
 import {
   SortableContext,
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { useSortable } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { Dialog, Transition } from '@headlessui/react';
-import { create } from 'zustand';
-import clsx from 'clsx';
-import { useAuth } from '../../lib/stores/authStore';
+} from "@dnd-kit/sortable";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Dialog, Transition } from "@headlessui/react";
+import { create } from "zustand";
+import clsx from "clsx";
+import { useAuth } from "../../lib/stores/authStore";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-type TaskStatus = 'todo' | 'inprogress' | 'late' | 'completed';
+type TaskStatus = "todo" | "inprogress" | "late" | "completed";
 type Category = string;
-type Label = 'Bug' | 'Need Help' | 'Want Fix' | 'Enhancement' | 'Question';
+type Label = "Bug" | "Need Help" | "Want Fix" | "Enhancement" | "Question";
 
 interface Task {
   id: string;
@@ -47,7 +48,7 @@ interface Issue {
   description: string;
   reportedBy: string;
   reportedAgo: string;
-  status: 'Open' | 'In Review' | 'New';
+  status: "Open" | "In Review" | "New";
   relatedTask?: string;
   comments: Comment[];
 }
@@ -72,6 +73,9 @@ const useStore = create<{
   isIssueDetailsOpen: boolean;
   activeFilter: Category;
   token: string | null;
+  members: any[];
+  projects: any[];
+  isCreateModalOpen: boolean;
 
   setToken: (token: string | null) => void;
   setTasks: (tasks: Task[]) => void;
@@ -85,13 +89,29 @@ const useStore = create<{
   openIssueDetails: (issue: Issue) => void;
   closeIssueDetails: () => void;
   setActiveFilter: (filter: Category) => void;
+  openCreateModal: () => void;
+  closeCreateModal: () => void;
 
   // API Actions
   fetchData: () => Promise<void>;
+  fetchMembers: () => Promise<void>;
+  fetchProjects: () => Promise<void>;
+  createTask: (taskData: {
+    task_name: string;
+    task_description: string;
+    due_date: string;
+    project_id: number | null;
+    member_ids: number[];
+  }) => Promise<void>;
   updateTaskProgress: (id: string, progress: number) => Promise<void>;
   moveTask: (id: string, status: TaskStatus) => Promise<void>;
   startTaskProgress: (id: string) => Promise<void>;
-  addIssue: (issue: Omit<Issue, 'id' | 'comments' | 'reportedBy' | 'reportedAgo' | 'status'>) => Promise<void>;
+  addIssue: (
+    issue: Omit<
+      Issue,
+      "id" | "comments" | "reportedBy" | "reportedAgo" | "status"
+    >,
+  ) => Promise<void>;
   deleteIssue: (id: string) => Promise<void>;
   fetchComments: (issueId: string) => Promise<void>;
   addComment: (issueId: string, text: string) => Promise<void>;
@@ -103,8 +123,11 @@ const useStore = create<{
   isProgressOpen: false,
   isReportOpen: false,
   isIssueDetailsOpen: false,
-  activeFilter: 'All',
+  activeFilter: "All",
   token: null,
+  members: [],
+  projects: [],
+  isCreateModalOpen: false,
 
   setToken: (token) => set({ token }),
   setTasks: (tasks) => set({ tasks }),
@@ -122,9 +145,12 @@ const useStore = create<{
     set({ selectedIssue: issue, isIssueDetailsOpen: true });
     get().fetchComments(issue.id);
   },
-  closeIssueDetails: () => set({ isIssueDetailsOpen: false, selectedIssue: null }),
+  closeIssueDetails: () =>
+    set({ isIssueDetailsOpen: false, selectedIssue: null }),
 
   setActiveFilter: (filter) => set({ activeFilter: filter }),
+  openCreateModal: () => set({ isCreateModalOpen: true }),
+  closeCreateModal: () => set({ isCreateModalOpen: false }),
 
   fetchData: async () => {
     const { token } = get();
@@ -133,32 +159,35 @@ const useStore = create<{
     try {
       // Fetch Tasks
       const tasksRes = await fetch(`${API_BASE}/tasks/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (tasksRes.ok) {
         const tasksData = await tasksRes.json();
-        const results = Array.isArray(tasksData) ? tasksData : (tasksData.results || []);
-        if (results.length > 0) console.log("Backend Task Payload:", results[0]);
+        const results = Array.isArray(tasksData)
+          ? tasksData
+          : tasksData.results || [];
+        if (results.length > 0)
+          console.log("Backend Task Payload:", results[0]);
         // Map backend tasks to frontend format
         const mappedTasks = results.map((t: any) => {
           const progress = t.progress || 0;
           const dueDate = t.due_date ? new Date(t.due_date) : null;
           const isLate = dueDate && dueDate < new Date() && progress < 100;
 
-          let status: TaskStatus = 'todo';
-          if (progress >= 100) status = 'completed';
-          else if (isLate) status = 'late';
-          else if (progress > 0) status = 'inprogress';
+          let status: TaskStatus = "todo";
+          if (progress >= 100) status = "completed";
+          else if (isLate) status = "late";
+          else if (progress > 0) status = "inprogress";
 
           return {
             id: t.id.toString(),
-            title: t.title || t.task_name || 'Untitled Task',
-            description: t.description || t.task_description || '',
+            title: t.title || t.task_name || "Untitled Task",
+            description: t.description || t.task_description || "",
             dueDate: dueDate ? dueDate.toLocaleDateString() : undefined,
-            category: t.project?.project_name || t.category || 'General',
+            category: t.project?.project_name || t.category || "General",
             project: t.project?.project_name,
             progress: progress,
-            status: status
+            status: status,
           };
         });
         set({ tasks: mappedTasks });
@@ -166,21 +195,25 @@ const useStore = create<{
 
       // Fetch Issues
       const issuesRes = await fetch(`${API_BASE}/issues/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (issuesRes.ok) {
         const issuesData = await issuesRes.json();
-        const results = Array.isArray(issuesData) ? issuesData : (issuesData.results || []);
+        const results = Array.isArray(issuesData)
+          ? issuesData
+          : issuesData.results || [];
         const mappedIssues = results.map((i: any) => ({
           id: i.id.toString(),
-          title: i.title || i.issue_title || 'Untitled Issue',
-          label: i.label || i.issue_type || 'Bug',
-          description: i.description || i.issue_description || '',
-          reportedBy: i.reported_by?.username || 'Unknown',
-          reportedAgo: i.created_at ? new Date(i.created_at).toLocaleDateString() : 'Recently',
-          status: i.status || 'Open',
-          relatedTask: i.related_task?.title || '',
-          comments: []
+          title: i.title || i.issue_title || "Untitled Issue",
+          label: i.label || i.issue_type || "Bug",
+          description: i.description || i.issue_description || "",
+          reportedBy: i.reported_by?.username || "Unknown",
+          reportedAgo: i.created_at
+            ? new Date(i.created_at).toLocaleDateString()
+            : "Recently",
+          status: i.status || "Open",
+          relatedTask: i.related_task?.title || "",
+          comments: [],
         }));
         set({ issues: mappedIssues });
       }
@@ -189,29 +222,96 @@ const useStore = create<{
     }
   },
 
+  fetchMembers: async () => {
+    const { token } = get();
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/members/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        set({ members: Array.isArray(data) ? data : data.results || [] });
+      }
+    } catch (error) {
+      console.error("Failed to fetch members:", error);
+    }
+  },
+
+  fetchProjects: async () => {
+    const { token } = get();
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/projects/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        set({ projects: Array.isArray(data) ? data : data.results || [] });
+      }
+    } catch (error) {
+      console.error("Failed to fetch projects:", error);
+    }
+  },
+
+  createTask: async (taskData) => {
+    const { token, tasks } = get();
+    if (!token) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/tasks/`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(taskData),
+      });
+
+      if (response.ok) {
+        const newTask = await response.json();
+        // fetchData is more reliable to get formatted data from backend relations
+        get().fetchData();
+        set({ isCreateModalOpen: false });
+      } else {
+        const err = await response.json();
+        alert(`Failed to create task: ${JSON.stringify(err)}`);
+      }
+    } catch (error) {
+      console.error("Failed to create task:", error);
+      alert("Network error: Could not create task.");
+    }
+  },
+
   updateTaskProgress: async (id, progress) => {
     const { token, tasks } = get();
     // Optimistic update
     set({
-      tasks: tasks.map(t => t.id === id ? { ...t, progress, status: progress >= 100 ? 'completed' : t.status } : t)
+      tasks: tasks.map((t) =>
+        t.id === id
+          ? { ...t, progress, status: progress >= 100 ? "completed" : t.status }
+          : t,
+      ),
     });
 
     if (token) {
       try {
         const response = await fetch(`${API_BASE}/tasks/${id}/`, {
-          method: 'PATCH',
+          method: "PATCH",
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-          body: JSON.stringify({ progress })
+          body: JSON.stringify({ progress }),
         });
 
         if (!response.ok) {
           const errMsg = await response.text();
           console.error("Task update failed:", response.status, errMsg);
           if (response.status === 403) {
-            alert("Permission denied: You cannot update progress for this task (only Managers who created it or Moderators can).");
+            alert(
+              "Permission denied: You cannot update progress for this task (only Managers who created it or Moderators can).",
+            );
           } else {
             alert(`Failed to save progress: ${response.status}`);
           }
@@ -225,27 +325,29 @@ const useStore = create<{
 
   moveTask: async (id, status) => {
     const { token, tasks } = get();
-    const task = tasks.find(t => t.id === id);
+    const task = tasks.find((t) => t.id === id);
     if (!task) return;
 
     // Optimistic update
     let newProgress = task.progress;
-    if (status === 'todo') newProgress = 0;
-    else if (status === 'inprogress' && task.progress === 0) newProgress = 10;
+    if (status === "todo") newProgress = 0;
+    else if (status === "inprogress" && task.progress === 0) newProgress = 10;
 
     set({
-      tasks: tasks.map(t => t.id === id ? { ...t, status, progress: newProgress } : t)
+      tasks: tasks.map((t) =>
+        t.id === id ? { ...t, status, progress: newProgress } : t,
+      ),
     });
 
     if (token) {
       try {
         await fetch(`${API_BASE}/tasks/${id}/`, {
-          method: 'PATCH',
+          method: "PATCH",
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-          body: JSON.stringify({ progress: newProgress })
+          body: JSON.stringify({ progress: newProgress }),
         });
       } catch (error) {
         console.error("Failed to move task:", error);
@@ -256,18 +358,20 @@ const useStore = create<{
   startTaskProgress: async (id) => {
     const { token, tasks } = get();
     set({
-      tasks: tasks.map(t => t.id === id ? { ...t, status: 'inprogress', progress: 0 } : t)
+      tasks: tasks.map((t) =>
+        t.id === id ? { ...t, status: "inprogress", progress: 0 } : t,
+      ),
     });
 
     if (token) {
       try {
         await fetch(`${API_BASE}/tasks/${id}/`, {
-          method: 'PATCH',
+          method: "PATCH",
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-          body: JSON.stringify({ progress: 10 })
+          body: JSON.stringify({ progress: 10 }),
         });
       } catch (error) {
         console.error("Failed to start task:", error);
@@ -281,46 +385,54 @@ const useStore = create<{
 
     try {
       const response = await fetch(`${API_BASE}/issues/`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           issue_title: newIssue.title,
           issue_description: newIssue.description,
-          task: parseInt(newIssue.relatedTask)
-        })
+          task: parseInt(newIssue.relatedTask),
+        }),
       });
 
       if (response.ok) {
         const savedIssue = await response.json();
-        const taskTitle = tasks.find(t => t.id === newIssue.relatedTask)?.title || '';
+        const taskTitle =
+          tasks.find((t) => t.id === newIssue.relatedTask)?.title || "";
 
         set({
-          issues: [{
-            id: savedIssue.id.toString(),
-            title: newIssue.title,
-            label: newIssue.label,
-            description: newIssue.description,
-            reportedBy: 'You',
-            reportedAgo: 'Just now',
-            status: 'New',
-            relatedTask: taskTitle,
-            comments: []
-          }, ...issues],
-          isReportOpen: false
+          issues: [
+            {
+              id: savedIssue.id.toString(),
+              title: newIssue.title,
+              label: newIssue.label,
+              description: newIssue.description,
+              reportedBy: "You",
+              reportedAgo: "Just now",
+              status: "New",
+              relatedTask: taskTitle,
+              comments: [],
+            },
+            ...issues,
+          ],
+          isReportOpen: false,
         });
       } else {
         const errorData = await response.text();
-        console.error('Issue API Error:', response.status, errorData);
+        console.error("Issue API Error:", response.status, errorData);
 
         if (response.status === 403) {
-          alert("Permission denied: You do not have permission to perform this action.");
+          alert(
+            "Permission denied: You do not have permission to perform this action.",
+          );
           return;
         }
 
-        throw new Error(`Failed to create issue: ${response.status} - ${errorData}`);
+        throw new Error(
+          `Failed to create issue: ${response.status} - ${errorData}`,
+        );
       }
     } catch (error) {
       console.error("Failed to add issue:", error);
@@ -333,23 +445,28 @@ const useStore = create<{
     if (!token) return;
 
     try {
-      const res = await fetch(`${API_BASE}/issue-comments/?issue_id=${issueId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await fetch(
+        `${API_BASE}/issue-comments/?issue_id=${issueId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       if (res.ok) {
         const data = await res.json();
-        const results = Array.isArray(data) ? data : (data.results || []);
+        const results = Array.isArray(data) ? data : data.results || [];
         const mapped = results.map((c: any) => ({
           id: c.id.toString(),
-          author: c.user?.username || 'Unknown',
-          avatarColor: 'bg-teal-500',
-          timeAgo: c.created_at ? new Date(c.created_at).toLocaleDateString() : 'Just now',
-          message: c.comment_text || ''
+          author: c.user?.username || "Unknown",
+          avatarColor: "bg-teal-500",
+          timeAgo: c.created_at
+            ? new Date(c.created_at).toLocaleDateString()
+            : "Just now",
+          message: c.comment_text || "",
         }));
 
         if (selectedIssue && selectedIssue.id === issueId) {
           set({
-            selectedIssue: { ...selectedIssue, comments: mapped }
+            selectedIssue: { ...selectedIssue, comments: mapped },
           });
         }
       }
@@ -364,15 +481,15 @@ const useStore = create<{
 
     try {
       const res = await fetch(`${API_BASE}/issue-comments/`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           issue: parseInt(issueId),
-          comment_text: text
-        })
+          comment_text: text,
+        }),
       });
 
       if (res.ok) {
@@ -380,16 +497,16 @@ const useStore = create<{
         if (selectedIssue && selectedIssue.id === issueId) {
           const newComment = {
             id: saved.id.toString(),
-            author: 'You',
-            avatarColor: 'bg-orange-500',
-            timeAgo: 'Just now',
-            message: text
+            author: "You",
+            avatarColor: "bg-orange-500",
+            timeAgo: "Just now",
+            message: text,
           };
           set({
             selectedIssue: {
               ...selectedIssue,
-              comments: [...selectedIssue.comments, newComment]
-            }
+              comments: [...selectedIssue.comments, newComment],
+            },
           });
         }
       }
@@ -402,18 +519,18 @@ const useStore = create<{
     const { token, issues } = get();
     // Optimistic delete
     set({
-      issues: issues.filter(i => i.id !== id),
+      issues: issues.filter((i) => i.id !== id),
       isIssueDetailsOpen: false,
-      selectedIssue: null
+      selectedIssue: null,
     });
 
     if (token) {
       try {
         await fetch(`${API_BASE}/issues/${id}/`, {
-          method: 'DELETE',
+          method: "DELETE",
           headers: {
-            'Authorization': `Bearer ${token}`
-          }
+            Authorization: `Bearer ${token}`,
+          },
         });
       } catch (error) {
         console.error("Failed to delete issue:", error);
@@ -441,7 +558,10 @@ function SortableTaskCard({ task }: { task: Task }) {
 
   const handleCardClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if ((task.status === 'inprogress' || task.status === 'late') && task.progress !== undefined) {
+    if (
+      (task.status === "inprogress" || task.status === "late") &&
+      task.progress !== undefined
+    ) {
       openProgress(task);
     }
   };
@@ -453,11 +573,11 @@ function SortableTaskCard({ task }: { task: Task }) {
       {...attributes}
       {...listeners}
       className={clsx(
-        'group bg-[#111111] border border-white/5 rounded-2xl p-5 cursor-grab active:cursor-grabbing transition-all duration-200 shadow-lg',
-        task.status === 'todo' && 'hover:border-green-500/30',
-        task.status === 'inprogress' && 'hover:border-orange-500/30',
-        task.status === 'late' && 'hover:border-red-500/30',
-        isDragging && 'opacity-50 scale-105 shadow-2xl'
+        "group bg-[#111111] border border-white/5 rounded-2xl p-5 cursor-grab active:cursor-grabbing transition-all duration-200 shadow-lg",
+        task.status === "todo" && "hover:border-green-500/30",
+        task.status === "inprogress" && "hover:border-orange-500/30",
+        task.status === "late" && "hover:border-red-500/30",
+        isDragging && "opacity-50 scale-105 shadow-2xl",
       )}
       onClick={handleCardClick}
     >
@@ -465,11 +585,16 @@ function SortableTaskCard({ task }: { task: Task }) {
         {/* Top Info: Category & Project */}
         <div className="flex items-center justify-between">
           <div className="flex flex-col gap-1">
-            <span className={clsx(
-              "text-[10px] font-bold uppercase tracking-wider",
-              task.status === 'todo' ? 'text-green-500' :
-                task.status === 'inprogress' ? 'text-orange-500' : 'text-red-500'
-            )}>
+            <span
+              className={clsx(
+                "text-[10px] font-bold uppercase tracking-wider",
+                task.status === "todo"
+                  ? "text-green-500"
+                  : task.status === "inprogress"
+                    ? "text-orange-500"
+                    : "text-red-500",
+              )}
+            >
               {task.category}
             </span>
             {task.project && (
@@ -478,7 +603,7 @@ function SortableTaskCard({ task }: { task: Task }) {
               </span>
             )}
           </div>
-          {task.status === 'late' && (
+          {task.status === "late" && (
             <span className="text-[9px] font-black bg-red-500 text-white px-2 py-0.5 rounded uppercase tracking-tighter">
               Late
             </span>
@@ -500,15 +625,25 @@ function SortableTaskCard({ task }: { task: Task }) {
         {/* Action / Deadline Row */}
         <div className="flex items-center justify-between pt-4 border-t border-white/5">
           <div className="flex items-center gap-2 text-gray-400">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            <svg
+              className="w-3 h-3"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2.5"
+                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
             </svg>
             <span className="text-[10px] font-bold uppercase tracking-tight">
-              {task.dueDate || 'No Deadline'}
+              {task.dueDate || "No Deadline"}
             </span>
           </div>
 
-          {task.status === 'todo' ? (
+          {task.status === "todo" ? (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -520,15 +655,19 @@ function SortableTaskCard({ task }: { task: Task }) {
             </button>
           ) : (
             <div className="flex flex-col items-end gap-1 min-w-[80px]">
-              <span className={clsx(
-                "text-[9px] font-bold uppercase tracking-widest",
-                task.status === 'late' ? 'text-red-500' : 'text-gray-500'
-              )}>{task.progress}%</span>
+              <span
+                className={clsx(
+                  "text-[9px] font-bold uppercase tracking-widest",
+                  task.status === "late" ? "text-red-500" : "text-gray-500",
+                )}
+              >
+                {task.progress}%
+              </span>
               <div className="w-full bg-white/5 rounded-full h-1 overflow-hidden">
                 <div
                   className={clsx(
                     "h-full rounded-full transition-all duration-500",
-                    task.status === 'late' ? 'bg-red-500' : 'bg-orange-500'
+                    task.status === "late" ? "bg-red-500" : "bg-orange-500",
                   )}
                   style={{ width: `${task.progress}%` }}
                 />
@@ -537,7 +676,6 @@ function SortableTaskCard({ task }: { task: Task }) {
           )}
         </div>
       </div>
-
     </div>
   );
 }
@@ -564,7 +702,7 @@ export default function TasksPage() {
     addIssue,
     deleteIssue,
     setToken,
-    fetchData
+    fetchData,
   } = store;
 
   // Sync auth token and fetch data
@@ -572,17 +710,33 @@ export default function TasksPage() {
     if (token) {
       setToken(token);
       fetchData();
+      if (
+        user?.role === "admin" ||
+        user?.backendRole === "mod" ||
+        user?.backendRole === "manager"
+      ) {
+        store.fetchMembers();
+        store.fetchProjects();
+      }
     }
-  }, [token, setToken, fetchData]);
+  }, [token, setToken, fetchData, user?.role, user?.backendRole]);
 
   const [newIssueForm, setNewIssueForm] = useState({
-    title: '',
-    label: 'Bug' as Label,
-    description: '',
-    relatedTask: '',
+    title: "",
+    label: "Bug" as Label,
+    description: "",
+    relatedTask: "",
   });
 
-  const [newCommentText, setNewCommentText] = useState('');
+  const [createTaskForm, setCreateTaskForm] = useState({
+    task_name: "",
+    task_description: "",
+    due_date: "",
+    project_id: "" as string | number, // use string for empty select
+    member_ids: [] as number[],
+  });
+
+  const [newCommentText, setNewCommentText] = useState("");
   const [localProgress, setLocalProgress] = useState(0);
 
   useEffect(() => {
@@ -599,7 +753,7 @@ export default function TasksPage() {
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -609,44 +763,55 @@ export default function TasksPage() {
     const activeId = active.id as string;
     const overId = over.id as TaskStatus;
 
-    if (overId === 'completed') return;
+    if (overId === "completed") return;
 
     store.moveTask(activeId, overId);
   };
 
   const allCategories = useMemo(() => {
-    const dept = user?.department?.name?.toLowerCase() || '';
-    if (dept.includes('design')) return ['All', 'UI/UX', 'Motion', 'Graphic'];
-    if (dept.includes('dev')) return ['All', 'Web', 'Mobile', 'Backend'];
+    const dept = user?.department?.name?.toLowerCase() || "";
+    if (dept.includes("design")) return ["All", "UI/UX", "Motion", "Graphic"];
+    if (dept.includes("dev")) return ["All", "Web", "Mobile", "Backend"];
 
     // Default: use "All" plus any project names found in tasks
-    const projectCategories = Array.from(new Set(tasks.map((t) => t.project).filter(Boolean))) as string[];
-    return ['All', ...projectCategories];
+    const projectCategories = Array.from(
+      new Set(tasks.map((t) => t.project).filter(Boolean)),
+    ) as string[];
+    return ["All", ...projectCategories];
   }, [user?.department?.name, tasks]);
 
   const filteredTasks = tasks
-    .filter((t) => t.status !== 'completed')
-    .filter((t) => activeFilter === 'All' || t.category === activeFilter || t.project === activeFilter);
+    .filter((t) => t.status !== "completed")
+    .filter(
+      (t) =>
+        activeFilter === "All" ||
+        t.category === activeFilter ||
+        t.project === activeFilter,
+    );
 
   const columns = {
-    todo: filteredTasks.filter((t) => t.status === 'todo'),
-    inprogress: filteredTasks.filter((t) => t.status === 'inprogress'),
-    late: filteredTasks.filter((t) => t.status === 'late'),
+    todo: filteredTasks.filter((t) => t.status === "todo"),
+    inprogress: filteredTasks.filter((t) => t.status === "inprogress"),
+    late: filteredTasks.filter((t) => t.status === "late"),
   };
 
   const getLabelColor = (label: Label) => {
     const colors: Record<Label, string> = {
-      'Bug': 'bg-red-600',
-      'Need Help': 'bg-blue-600',
-      'Want Fix': 'bg-orange-600',
-      'Enhancement': 'bg-emerald-600',
-      'Question': 'bg-purple-600',
+      Bug: "bg-red-600",
+      "Need Help": "bg-blue-600",
+      "Want Fix": "bg-orange-600",
+      Enhancement: "bg-emerald-600",
+      Question: "bg-purple-600",
     };
-    return colors[label] || 'bg-gray-600';
+    return colors[label] || "bg-gray-600";
   };
 
   const handleSubmitIssue = () => {
-    if (!newIssueForm.title || !newIssueForm.description || !newIssueForm.relatedTask) {
+    if (
+      !newIssueForm.title ||
+      !newIssueForm.description ||
+      !newIssueForm.relatedTask
+    ) {
       alert("Please fill in all required fields and select a related task.");
       return;
     }
@@ -658,7 +823,44 @@ export default function TasksPage() {
       relatedTask: newIssueForm.relatedTask,
     });
 
-    setNewIssueForm({ title: '', label: 'Bug', description: '', relatedTask: '' });
+    setNewIssueForm({
+      title: "",
+      label: "Bug",
+      description: "",
+      relatedTask: "",
+    });
+  };
+
+  const handleCreateTask = () => {
+    if (
+      !createTaskForm.task_name ||
+      !createTaskForm.due_date ||
+      createTaskForm.member_ids.length === 0
+    ) {
+      alert(
+        "Please fill in required fields (Name, Due Date, and at least one Assignee).",
+      );
+      return;
+    }
+
+    store.createTask({
+      task_name: createTaskForm.task_name,
+      task_description: createTaskForm.task_description,
+      due_date: createTaskForm.due_date,
+      project_id:
+        createTaskForm.project_id === ""
+          ? null
+          : Number(createTaskForm.project_id),
+      member_ids: createTaskForm.member_ids,
+    });
+
+    setCreateTaskForm({
+      task_name: "",
+      task_description: "",
+      due_date: "",
+      project_id: "",
+      member_ids: [],
+    });
   };
 
   return (
@@ -674,14 +876,17 @@ export default function TasksPage() {
               {user?.department && (
                 <div className="flex items-center gap-2 px-3 py-1 bg-[#00d084]/10 border border-[#00d084]/20 rounded-full">
                   <div className="w-1.5 h-1.5 bg-[#00d084] rounded-full animate-pulse" />
-                  <span className="text-[10px] uppercase font-bold text-[#00d084] tracking-widest">{user.department.name}</span>
+                  <span className="text-[10px] uppercase font-bold text-[#00d084] tracking-widest">
+                    {user.department.name}
+                  </span>
                 </div>
               )}
               <div className="w-6 h-6 bg-red-500/20 rounded-full border border-red-500/50 animate-pulse" />
             </div>
           </div>
           <p className="text-gray-400 text-lg max-w-2xl">
-            Manage your assigned tasks and report issues for {user?.department?.name || 'your department'}
+            Manage your assigned tasks and report issues for{" "}
+            {user?.department?.name || "your department"}
           </p>
         </header>
 
@@ -697,12 +902,51 @@ export default function TasksPage() {
                 className="group flex items-center gap-2.5 px-5 py-2.5 bg-[#1a1a1a]/40 backdrop-blur-md border border-white/5 rounded-2xl text-gray-400 hover:text-white hover:border-orange-500/30 hover:bg-orange-500/5 transition-all duration-300 shadow-lg"
               >
                 <div className="w-5 h-5 flex items-center justify-center bg-white/5 rounded-lg group-hover:bg-orange-500/20 group-hover:text-orange-500 transition-colors">
-                  <svg className="w-3.5 h-3.5 animate-spin-slow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  <svg
+                    className="w-3.5 h-3.5 animate-spin-slow"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.5"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
                   </svg>
                 </div>
-                <span className="text-xs font-black uppercase tracking-widest">Sync Board</span>
+                <span className="text-xs font-black uppercase tracking-widest">
+                  Sync Board
+                </span>
               </button>
+              {(user?.role === "admin" ||
+                user?.backendRole === "mod" ||
+                user?.backendRole === "manager") && (
+                <button
+                  onClick={() => store.openCreateModal()}
+                  className="group flex items-center gap-2.5 px-5 py-2.5 bg-[#00d084] border border-[#00d084]/20 rounded-2xl text-black hover:bg-[#00b874] transition-all duration-300 shadow-lg"
+                >
+                  <div className="w-5 h-5 flex items-center justify-center bg-black/10 rounded-lg group-hover:bg-black/20 transition-colors">
+                    <svg
+                      className="w-3.5 h-3.5 font-bold"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="3"
+                        d="M12 5v14m-7-7h14"
+                      />
+                    </svg>
+                  </div>
+                  <span className="text-xs font-black uppercase tracking-widest">
+                    Create Task
+                  </span>
+                </button>
+              )}
             </div>
 
             {/* Filter Tabs */}
@@ -712,10 +956,10 @@ export default function TasksPage() {
                   key={filter}
                   onClick={() => setActiveFilter(filter)}
                   className={clsx(
-                    'px-6 py-3 rounded-full text-sm font-semibold transition-all duration-200 shadow-lg',
+                    "px-6 py-3 rounded-full text-sm font-semibold transition-all duration-200 shadow-lg",
                     activeFilter === filter
-                      ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-orange-500/25 scale-105'
-                      : 'bg-[#1a1a1a]/50 text-gray-400 border border-gray-700 hover:bg-gray-800 hover:border-gray-600 hover:scale-105 hover:shadow-md'
+                      ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-orange-500/25 scale-105"
+                      : "bg-[#1a1a1a]/50 text-gray-400 border border-gray-700 hover:bg-gray-800 hover:border-gray-600 hover:scale-105 hover:shadow-md",
                   )}
                 >
                   {filter}
@@ -730,23 +974,38 @@ export default function TasksPage() {
               onDragEnd={handleDragEnd}
             >
               <div className="grid grid-cols-3 gap-2">
-                {(['todo', 'inprogress', 'late'] as const).map((column) => (
-                  <div key={column} className="bg-[#0d0d0d]/80 backdrop-blur-xl rounded-[32px] p-6 border border-white/[0.03] shadow-2xl transition-all h-fit">
+                {(["todo", "inprogress", "late"] as const).map((column) => (
+                  <div
+                    key={column}
+                    className="bg-[#0d0d0d]/80 backdrop-blur-xl rounded-[32px] p-6 border border-white/[0.03] shadow-2xl transition-all h-fit"
+                  >
                     <div className="flex justify-between items-center mb-6">
-                      <h3 className={clsx(
-                        "text-sm font-bold uppercase tracking-wider",
-                        column === 'todo' ? 'text-green-500' :
-                          column === 'inprogress' ? 'text-orange-500' : 'text-red-500'
-                      )}>
-                        {column === 'todo' ? 'To Do' :
-                          column === 'inprogress' ? 'In Progress' : 'Late'}
+                      <h3
+                        className={clsx(
+                          "text-sm font-bold uppercase tracking-wider",
+                          column === "todo"
+                            ? "text-green-500"
+                            : column === "inprogress"
+                              ? "text-orange-500"
+                              : "text-red-500",
+                        )}
+                      >
+                        {column === "todo"
+                          ? "To Do"
+                          : column === "inprogress"
+                            ? "In Progress"
+                            : "Late"}
                       </h3>
-                      <span className={clsx(
-                        'text-[10px] font-bold px-3 py-1 rounded-full border',
-                        column === 'todo' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
-                          column === 'inprogress' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
-                            'bg-red-500/10 text-red-400 border-red-500/20'
-                      )}>
+                      <span
+                        className={clsx(
+                          "text-[10px] font-bold px-3 py-1 rounded-full border",
+                          column === "todo"
+                            ? "bg-green-500/10 text-green-400 border-green-500/20"
+                            : column === "inprogress"
+                              ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
+                              : "bg-red-500/10 text-red-400 border-red-500/20",
+                        )}
+                      >
                         {columns[column].length}
                       </span>
                     </div>
@@ -761,9 +1020,11 @@ export default function TasksPage() {
                       >
                         {columns[column].length === 0 ? (
                           <div className="text-center py-12 text-gray-500 text-sm">
-                            {column === 'todo' ? 'No tasks here' :
-                              column === 'inprogress' ? 'No tasks in progress' :
-                                'No late tasks'}
+                            {column === "todo"
+                              ? "No tasks here"
+                              : column === "inprogress"
+                                ? "No tasks in progress"
+                                : "No late tasks"}
                           </div>
                         ) : (
                           columns[column].map((task) => (
@@ -795,26 +1056,35 @@ export default function TasksPage() {
                     <h4 className="font-semibold text-sm text-white line-clamp-1 group-hover:text-orange-400">
                       {issue.title}
                     </h4>
-                    <span className={clsx(
-                      'text-xs font-bold px-3 py-1 rounded-full text-white shadow-lg',
-                      getLabelColor(issue.label)
-                    )}>
+                    <span
+                      className={clsx(
+                        "text-xs font-bold px-3 py-1 rounded-full text-white shadow-lg",
+                        getLabelColor(issue.label),
+                      )}
+                    >
                       {issue.label}
                     </span>
                   </div>
 
-                  <p className="text-xs text-gray-400 mb-2">Reported {issue.reportedAgo}</p>
+                  <p className="text-xs text-gray-400 mb-2">
+                    Reported {issue.reportedAgo}
+                  </p>
                   <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">
                     {issue.description}
                   </p>
 
                   <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
-                    Status: <span className="font-medium capitalize">{issue.status}</span>
+                    Status:{" "}
+                    <span className="font-medium capitalize">
+                      {issue.status}
+                    </span>
                   </p>
                 </div>
               ))}
               {issues.length === 0 && (
-                <p className="text-center text-gray-500 text-sm py-4">No issues reported</p>
+                <p className="text-center text-gray-500 text-sm py-4">
+                  No issues reported
+                </p>
               )}
             </div>
 
@@ -868,12 +1138,16 @@ export default function TasksPage() {
                 <div className="space-y-6">
                   <div>
                     <p className="text-sm text-gray-400 mb-1">Task:</p>
-                    <p className="text-lg font-semibold text-white">{selectedTask?.title}</p>
+                    <p className="text-lg font-semibold text-white">
+                      {selectedTask?.title}
+                    </p>
                   </div>
 
                   <div>
                     <div className="flex items-center justify-between mb-6">
-                      <span className="text-sm text-gray-400">Progress Completion</span>
+                      <span className="text-sm text-gray-400">
+                        Progress Completion
+                      </span>
                       <span className="text-2xl font-bold text-teal-400">
                         {localProgress}%
                       </span>
@@ -885,7 +1159,9 @@ export default function TasksPage() {
                         min="0"
                         max="100"
                         value={localProgress}
-                        onChange={(e) => setLocalProgress(Number(e.target.value))}
+                        onChange={(e) =>
+                          setLocalProgress(Number(e.target.value))
+                        }
                         className="w-full h-2 bg-gray-800 rounded-full appearance-none cursor-pointer"
                         style={{
                           background: `linear-gradient(to right, #10b981 0%, #10b981 ${localProgress}%, #374151 ${localProgress}%, #374151 100%)`,
@@ -894,7 +1170,10 @@ export default function TasksPage() {
                       <div className="absolute top-1/2 left-0 -translate-y-1/2 w-full h-5 pointer-events-none">
                         <div
                           className="absolute top-1/2 -translate-y-1/2 w-6 h-6 bg-teal-500 rounded-full shadow-lg border-4 border-black"
-                          style={{ left: `${localProgress}%`, transform: `translateX(-50%) translateY(-50%)` }}
+                          style={{
+                            left: `${localProgress}%`,
+                            transform: `translateX(-50%) translateY(-50%)`,
+                          }}
                         />
                       </div>
                     </div>
@@ -919,8 +1198,18 @@ export default function TasksPage() {
                   >
                     <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
                     <span>save progress</span>
-                    <svg className="w-4 h-4 group-hover:translate-x-1 border-l border-white/20 pl-1.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    <svg
+                      className="w-4 h-4 group-hover:translate-x-1 border-l border-white/20 pl-1.5 transition-transform"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="3"
+                        d="M13 7l5 5m0 0l-5 5m5-5H6"
+                      />
                     </svg>
                   </button>
                 </div>
@@ -967,25 +1256,43 @@ export default function TasksPage() {
                     <input
                       type="text"
                       value={newIssueForm.title}
-                      onChange={(e) => setNewIssueForm({ ...newIssueForm, title: e.target.value })}
+                      onChange={(e) =>
+                        setNewIssueForm({
+                          ...newIssueForm,
+                          title: e.target.value,
+                        })
+                      }
                       className="w-full bg-[#1a1a1a] border border-[#333333] rounded-xl px-5 py-4 text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all"
                       placeholder="Login Button Not Working"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm text-gray-300 font-medium mb-3">Label <span className="text-red-400">*</span></label>
+                    <label className="block text-sm text-gray-300 font-medium mb-3">
+                      Label <span className="text-red-400">*</span>
+                    </label>
                     <div className="flex flex-wrap gap-3">
-                      {(['Bug', 'Need Help', 'Want Fix', 'Enhancement', 'Question'] as Label[]).map((label) => (
+                      {(
+                        [
+                          "Bug",
+                          "Need Help",
+                          "Want Fix",
+                          "Enhancement",
+                          "Question",
+                        ] as Label[]
+                      ).map((label) => (
                         <button
                           key={label}
                           type="button"
-                          onClick={() => setNewIssueForm({ ...newIssueForm, label })}
+                          onClick={() =>
+                            setNewIssueForm({ ...newIssueForm, label })
+                          }
                           className={clsx(
-                            'px-5 py-3 rounded-xl text-sm font-semibold transition-all shadow-lg',
+                            "px-5 py-3 rounded-xl text-sm font-semibold transition-all shadow-lg",
                             newIssueForm.label === label
-                              ? getLabelColor(label) + ' text-white shadow-lg shadow-red-500/25 scale-105'
-                              : 'bg-[#1a1a1a]/50 text-gray-400 border-2 border-gray-700 hover:border-gray-600 hover:bg-gray-800 hover:scale-105'
+                              ? getLabelColor(label) +
+                                  " text-white shadow-lg shadow-red-500/25 scale-105"
+                              : "bg-[#1a1a1a]/50 text-gray-400 border-2 border-gray-700 hover:border-gray-600 hover:bg-gray-800 hover:scale-105",
                           )}
                         >
                           {label}
@@ -1001,22 +1308,38 @@ export default function TasksPage() {
                     <textarea
                       rows={4}
                       value={newIssueForm.description}
-                      onChange={(e) => setNewIssueForm({ ...newIssueForm, description: e.target.value })}
+                      onChange={(e) =>
+                        setNewIssueForm({
+                          ...newIssueForm,
+                          description: e.target.value,
+                        })
+                      }
                       className="w-full bg-[#1a1a1a] border border-[#333333] rounded-xl px-5 py-4 text-white placeholder-gray-500 resize-vertical focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all"
                       placeholder="Describe the issue..."
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm text-gray-400 font-medium mb-3">Related Task <span className="text-red-400">*</span></label>
+                    <label className="block text-sm text-gray-400 font-medium mb-3">
+                      Related Task <span className="text-red-400">*</span>
+                    </label>
                     <select
                       value={newIssueForm.relatedTask}
-                      onChange={(e) => setNewIssueForm({ ...newIssueForm, relatedTask: e.target.value })}
+                      onChange={(e) =>
+                        setNewIssueForm({
+                          ...newIssueForm,
+                          relatedTask: e.target.value,
+                        })
+                      }
                       className="w-full bg-[#1a1a1a] border border-[#333333] rounded-xl px-5 py-4 text-white focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all appearance-none"
                     >
                       <option value="">Select a task...</option>
-                      {tasks.map(task => (
-                        <option key={task.id} value={task.id} className="bg-[#0a0a0a]">
+                      {tasks.map((task) => (
+                        <option
+                          key={task.id}
+                          value={task.id}
+                          className="bg-[#0a0a0a]"
+                        >
                           {task.title}
                         </option>
                       ))}
@@ -1033,7 +1356,10 @@ export default function TasksPage() {
                   </button>
                   <button
                     onClick={handleSubmitIssue}
-                    disabled={!newIssueForm.title.trim() || !newIssueForm.description.trim()}
+                    disabled={
+                      !newIssueForm.title.trim() ||
+                      !newIssueForm.description.trim()
+                    }
                     className="flex-1 px-8 py-4 bg-teal-500 text-black font-bold rounded-xl hover:bg-teal-400 shadow-lg hover:shadow-teal-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
                   >
                     Submit Issue
@@ -1047,6 +1373,190 @@ export default function TasksPage() {
 
       {/* Issue Details Modal */}
       <Transition show={isIssueDetailsOpen} as={React.Fragment}>
+        {/* Create Task Modal */}
+        <Transition show={store.isCreateModalOpen} as={React.Fragment}>
+          <Dialog onClose={store.closeCreateModal} className="relative z-50">
+            <Transition.Child
+              enter="ease-out duration-300"
+              enterFrom="opacity-0"
+              enterTo="opacity-100"
+              leave="ease-in duration-200"
+              leaveFrom="opacity-100"
+              leaveTo="opacity-0"
+            >
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm" />
+            </Transition.Child>
+
+            <div className="fixed inset-0 flex items-center justify-center p-4">
+              <Transition.Child
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 scale-95"
+                enterTo="opacity-100 scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 scale-100"
+                leaveTo="opacity-0 scale-95"
+              >
+                <Dialog.Panel className="bg-[#0a0a0a] rounded-3xl p-8 max-w-lg w-full border border-[#1a1a1a] shadow-2xl max-h-[90vh] overflow-y-auto">
+                  <Dialog.Title className="text-2xl font-bold mb-8 text-white flex items-center gap-3">
+                    Create New Task
+                    <span className="text-[#00d084] text-sm font-medium">
+                      * required
+                    </span>
+                  </Dialog.Title>
+
+                  <div className="space-y-6">
+                    <div>
+                      <label className="block text-sm text-gray-300 font-medium mb-3">
+                        Task Name <span className="text-[#00d084]">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={createTaskForm.task_name}
+                        onChange={(e) =>
+                          setCreateTaskForm({
+                            ...createTaskForm,
+                            task_name: e.target.value,
+                          })
+                        }
+                        className="w-full bg-[#1a1a1a] border border-[#333333] rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:border-[#00d084] focus:outline-none focus:ring-2 focus:ring-[#00d084]/20 transition-all text-sm"
+                        placeholder="e.g. Design Dashboard UI"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-300 font-medium mb-3">
+                        Description
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={createTaskForm.task_description}
+                        onChange={(e) =>
+                          setCreateTaskForm({
+                            ...createTaskForm,
+                            task_description: e.target.value,
+                          })
+                        }
+                        className="w-full bg-[#1a1a1a] border border-[#333333] rounded-xl px-4 py-3 text-white placeholder-gray-500 resize-vertical focus:border-[#00d084] focus:outline-none focus:ring-2 focus:ring-[#00d084]/20 transition-all text-sm"
+                        placeholder="What needs to be done?"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-gray-300 font-medium mb-3">
+                          Due Date <span className="text-[#00d084]">*</span>
+                        </label>
+                        <input
+                          type="date"
+                          value={createTaskForm.due_date}
+                          onChange={(e) =>
+                            setCreateTaskForm({
+                              ...createTaskForm,
+                              due_date: e.target.value,
+                            })
+                          }
+                          className="w-full bg-[#1a1a1a] border border-[#333333] rounded-xl px-4 py-3 text-white focus:border-[#00d084] focus:outline-none focus:ring-2 focus:ring-[#00d084]/20 transition-all text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-300 font-medium mb-3">
+                          Project
+                        </label>
+                        <select
+                          value={createTaskForm.project_id}
+                          onChange={(e) =>
+                            setCreateTaskForm({
+                              ...createTaskForm,
+                              project_id: e.target.value,
+                            })
+                          }
+                          className="w-full bg-[#1a1a1a] border border-[#333333] rounded-xl px-4 py-3 text-white focus:border-[#00d084] focus:outline-none focus:ring-2 focus:ring-[#00d084]/20 transition-all appearance-none text-sm"
+                        >
+                          <option value="">None</option>
+                          {store.projects.map((p) => (
+                            <option
+                              key={p.id}
+                              value={p.id}
+                              className="bg-[#0a0a0a]"
+                            >
+                              {p.project_name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-300 font-medium mb-3">
+                        Assign To <span className="text-[#00d084]">*</span>
+                      </label>
+                      <div className="max-h-40 overflow-y-auto border border-[#333333] rounded-xl p-3 bg-[#111111] custom-scrollbar">
+                        {store.members.map((member) => (
+                          <label
+                            key={member.id}
+                            className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors group"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={createTaskForm.member_ids.includes(
+                                member.id,
+                              )}
+                              onChange={(e) => {
+                                const ids = e.target.checked
+                                  ? [...createTaskForm.member_ids, member.id]
+                                  : createTaskForm.member_ids.filter(
+                                      (id) => id !== member.id,
+                                    );
+                                setCreateTaskForm({
+                                  ...createTaskForm,
+                                  member_ids: ids,
+                                });
+                              }}
+                              className="w-4 h-4 rounded border-[#333333] text-[#00d084] focus:ring-[#00d084]/20 bg-[#1a1a1a]"
+                            />
+                            <div className="flex flex-col">
+                              <span className="text-sm text-white group-hover:text-[#00d084] transition-colors">
+                                {member.username}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                {member.role?.role_name} •{" "}
+                                {member.department?.dept_name || "No Dept"}
+                              </span>
+                            </div>
+                          </label>
+                        ))}
+                        {store.members.length === 0 && (
+                          <p className="text-xs text-gray-500 italic p-2">
+                            Loading members...
+                          </p>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-gray-500 mt-2">
+                        Selected: {createTaskForm.member_ids.length} members
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4 mt-12 pt-8 border-t border-gray-800">
+                    <button
+                      onClick={store.closeCreateModal}
+                      className="flex-1 px-6 py-3 bg-gray-900/50 text-gray-400 border border-gray-700 rounded-xl hover:bg-gray-800 hover:border-gray-600 font-semibold transition-all text-sm"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleCreateTask}
+                      className="flex-1 px-8 py-3 bg-[#00d084] text-black font-bold rounded-xl hover:bg-[#00b874] shadow-lg hover:shadow-[#00d084]/20 transition-all text-sm"
+                    >
+                      Create Task
+                    </button>
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
+            </div>
+          </Dialog>
+        </Transition>
+
         <Dialog onClose={closeIssueDetails} className="relative z-50">
           <Transition.Child
             enter="ease-out duration-300"
@@ -1074,10 +1584,12 @@ export default function TasksPage() {
                     <div className="flex items-start justify-between mb-8">
                       <div>
                         <div className="flex items-center gap-4 mb-4">
-                          <span className={clsx(
-                            'px-6 py-2 rounded-2xl text-sm font-bold text-white shadow-xl',
-                            getLabelColor(selectedIssue.label)
-                          )}>
+                          <span
+                            className={clsx(
+                              "px-6 py-2 rounded-2xl text-sm font-bold text-white shadow-xl",
+                              getLabelColor(selectedIssue.label),
+                            )}
+                          >
                             {selectedIssue.label}
                           </span>
                           <div className="flex items-center gap-4 text-sm text-gray-400">
@@ -1103,19 +1615,25 @@ export default function TasksPage() {
 
                     <div className="grid grid-cols-3 gap-8 mb-12">
                       <div className="col-span-2">
-                        <h4 className="text-xl font-bold mb-4 text-white">Description</h4>
+                        <h4 className="text-xl font-bold mb-4 text-white">
+                          Description
+                        </h4>
                         <p className="text-gray-300 text-lg leading-relaxed bg-[#1a1a1a]/50 p-6 rounded-2xl border border-[#333333]">
                           {selectedIssue.description}
                         </p>
                       </div>
                       <div>
-                        <h4 className="text-xl font-bold mb-4 text-white">Status</h4>
+                        <h4 className="text-xl font-bold mb-4 text-white">
+                          Status
+                        </h4>
                         <div className="bg-gradient-to-br from-gray-900 to-gray-800 p-6 rounded-2xl border border-[#333333]">
                           <span className="text-2xl font-bold capitalize text-teal-400 block">
                             {selectedIssue.status}
                           </span>
                           {selectedIssue.relatedTask && (
-                            <p className="text-sm text-gray-400 mt-2">Related: {selectedIssue.relatedTask}</p>
+                            <p className="text-sm text-gray-400 mt-2">
+                              Related: {selectedIssue.relatedTask}
+                            </p>
                           )}
                         </div>
                       </div>
@@ -1124,28 +1642,47 @@ export default function TasksPage() {
                     <div>
                       <h4 className="text-2xl font-bold mb-8 text-white flex items-center gap-3">
                         Collaboration & Help
-                        <span className="text-sm text-gray-500 font-normal">({selectedIssue.comments.length})</span>
+                        <span className="text-sm text-gray-500 font-normal">
+                          ({selectedIssue.comments.length})
+                        </span>
                       </h4>
 
                       <div className="space-y-6 mb-8">
                         {selectedIssue.comments.length > 0 ? (
                           selectedIssue.comments.map((comment) => (
-                            <div key={comment.id} className="flex gap-4 p-6 bg-[#1a1a1a]/50 rounded-2xl border border-[#333333]/50 hover:border-gray-600 transition-all">
-                              <div className={clsx('w-12 h-12 rounded-2xl flex-shrink-0 flex items-center justify-center', comment.avatarColor)}>
+                            <div
+                              key={comment.id}
+                              className="flex gap-4 p-6 bg-[#1a1a1a]/50 rounded-2xl border border-[#333333]/50 hover:border-gray-600 transition-all"
+                            >
+                              <div
+                                className={clsx(
+                                  "w-12 h-12 rounded-2xl flex-shrink-0 flex items-center justify-center",
+                                  comment.avatarColor,
+                                )}
+                              >
                                 <span className="font-semibold text-white text-sm">
                                   {comment.author[0].toUpperCase()}
                                 </span>
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-3 mb-2">
-                                  <span className="font-semibold text-white text-sm truncate">{comment.author}</span>
-                                  <span className="text-xs text-gray-500">{comment.timeAgo}</span>
+                                  <span className="font-semibold text-white text-sm truncate">
+                                    {comment.author}
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    {comment.timeAgo}
+                                  </span>
                                 </div>
-                                <p className="text-gray-300 text-sm leading-relaxed mb-4">{comment.message}</p>
+                                <p className="text-gray-300 text-sm leading-relaxed mb-4">
+                                  {comment.message}
+                                </p>
                                 {comment.attachments?.length ? (
                                   <div className="flex flex-wrap gap-2">
                                     {comment.attachments.map((file, i) => (
-                                      <div key={i} className="bg-gray-800/50 px-3 py-2 rounded-xl text-xs text-gray-300 border border-gray-700 hover:border-gray-600 cursor-pointer transition-all flex items-center gap-2">
+                                      <div
+                                        key={i}
+                                        className="bg-gray-800/50 px-3 py-2 rounded-xl text-xs text-gray-300 border border-gray-700 hover:border-gray-600 cursor-pointer transition-all flex items-center gap-2"
+                                      >
                                         📎 {file}
                                       </div>
                                     ))}
@@ -1155,7 +1692,9 @@ export default function TasksPage() {
                             </div>
                           ))
                         ) : (
-                          <p className="text-gray-500 text-center py-4">No comments yet.</p>
+                          <p className="text-gray-500 text-center py-4">
+                            No comments yet.
+                          </p>
                         )}
                       </div>
 
@@ -1165,9 +1704,12 @@ export default function TasksPage() {
                           value={newCommentText}
                           onChange={(e) => setNewCommentText(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && newCommentText.trim()) {
-                              store.addComment(selectedIssue.id, newCommentText);
-                              setNewCommentText('');
+                            if (e.key === "Enter" && newCommentText.trim()) {
+                              store.addComment(
+                                selectedIssue.id,
+                                newCommentText,
+                              );
+                              setNewCommentText("");
                             }
                           }}
                           placeholder="Type your message or offer help..."
@@ -1177,8 +1719,11 @@ export default function TasksPage() {
                           <button
                             onClick={() => {
                               if (newCommentText.trim()) {
-                                store.addComment(selectedIssue.id, newCommentText);
-                                setNewCommentText('');
+                                store.addComment(
+                                  selectedIssue.id,
+                                  newCommentText,
+                                );
+                                setNewCommentText("");
                               }
                             }}
                             className="bg-teal-500 text-black px-8 py-4 rounded-2xl font-bold hover:bg-teal-400 shadow-lg hover:shadow-teal-500/25 transition-all whitespace-nowrap"
@@ -1216,7 +1761,7 @@ export default function TasksPage() {
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
           background: #4b5563;
         }
-        
+
         input[type="range"]::-webkit-slider-thumb {
           appearance: none;
           width: 28px;
