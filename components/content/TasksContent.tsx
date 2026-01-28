@@ -770,9 +770,6 @@ export default function TasksPage() {
 
   const allCategories = useMemo(() => {
     const dept = user?.department?.name?.toLowerCase() || "";
-    if (dept.includes("design")) return ["All", "UI/UX", "Motion", "Graphic"];
-    if (dept.includes("dev")) return ["All", "Web", "Mobile", "Backend"];
-
     // Default: use "All" plus any project names found in tasks
     const projectCategories = Array.from(
       new Set(tasks.map((t) => t.project).filter(Boolean)),
